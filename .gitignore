@@ -1,0 +1,5 @@
+# .gitignore
+n8n_data/
+.env
+node_modules/
+*.log
