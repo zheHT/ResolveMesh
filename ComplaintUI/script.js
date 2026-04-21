@@ -24,7 +24,7 @@ form.addEventListener("submit", (event) => {
 
   let hasError = false;
 
-  const requiredFields = ["reference", "date", "channel", "impact", "summary", "details"];
+  const requiredFields = ["reference", "summary", "details"];
 
   requiredFields.forEach((id) => {
     const input = document.getElementById(id);
@@ -48,9 +48,6 @@ form.addEventListener("submit", (event) => {
   const payload = {
     complaintType: complaintType.value,
     reference: document.getElementById("reference").value.trim(),
-    date: document.getElementById("date").value,
-    channel: document.getElementById("channel").value,
-    impact: document.getElementById("impact").value,
     summary: document.getElementById("summary").value.trim(),
     details: document.getElementById("details").value.trim(),
     attachment: attachment.files?.[0]?.name || null,

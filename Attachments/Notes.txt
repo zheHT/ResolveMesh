@@ -1,0 +1,16 @@
+curl -X POST "https://unemployed.app.n8n.cloud/webhook-test/userComplaint" \
+-H "Content-Type: application/json" \
+-d '{
+  "api_key": "GRB_MY_7721",
+  "platform": "Grab",
+  "user_data": {
+    "account_id": "tjx_99"
+  },
+  "dispute_data": {
+    "order_id": "GRB-FOOD-101",
+    "amount": 28.50,
+    "issue": "Moldy Bread"
+  },
+  "evidence_url": "https://drive.google.com/uc?export=view&id=1exxnOfUtVZIHwxzWFR5HMY2y6-JDhW5R"
+}'
+

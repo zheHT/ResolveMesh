@@ -1,0 +1,15 @@
+{
+  "api_key": "GRB_MY_7721",
+  "platform": "Grab",
+  "user_data": {
+    "account_id": "tjx_99",
+    "tier": "Platinum"
+  },
+  "dispute_data": {
+    "order_id": "GRB-FOOD-101",
+    "amount": 28.50,
+    "issue": "Food arrived spoilt/moldy",
+    "user_comment": "My burger bread has green spots. See photo."
+  },
+  "evidence_url": "https://drive.google.com/uc?export=view&id=1exxnOfUtVZIHwxzWFR5HMY2y6-JDhW5R"
+}
