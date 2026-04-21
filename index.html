@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Customer Care | Submit Complaint</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Spectral:wght@500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-orb orb-1" aria-hidden="true"></div>
+  <div class="bg-orb orb-2" aria-hidden="true"></div>
+
+  <main class="page-shell">
+    <section class="hero">
+      <p class="tag">Trust & Support Center</p>
+      <h1>Tell us what went wrong. We will make it right.</h1>
+      <p class="subtitle">
+        Track your report like a support ticket, get priority handling for urgent cases,
+        and receive updates through your preferred contact channel.
+      </p>
+    </section>
+
+    <section class="layout-grid">
+      <aside class="status-card" aria-label="Case timeline preview">
+        <h2>How your case is handled</h2>
+        <ol class="timeline">
+          <li>
+            <span class="dot"></span>
+            <div>
+              <h3>Reported</h3>
+              <p>Your complaint ID is generated instantly.</p>
+            </div>
+          </li>
+          <li>
+            <span class="dot"></span>
+            <div>
+              <h3>Review in Progress</h3>
+              <p>Assigned specialist validates transaction or service logs.</p>
+            </div>
+          </li>
+          <li>
+            <span class="dot"></span>
+            <div>
+              <h3>Resolution</h3>
+              <p>Refund, correction, or policy action based on findings.</p>
+            </div>
+          </li>
+        </ol>
+
+        <div class="pledge">
+          <p class="pledge-label">Service commitment</p>
+          <p class="pledge-value">Initial response within 24 hours</p>
+        </div>
+      </aside>
+
+      <section class="form-card" aria-label="Complaint form">
+        <div class="form-head">
+          <h2>Create Complaint</h2>
+          <p>Fields marked with * are required.</p>
+        </div>
+
+        <form id="complaintForm" novalidate>
+          <div class="field-group">
+            <label class="field-label">Complaint Type *</label>
+            <div class="chip-grid" role="radiogroup" aria-label="Complaint type">
+              <button type="button" class="chip selected" data-value="Ride">Ride</button>
+              <button type="button" class="chip" data-value="Food Delivery">Food Delivery</button>
+              <button type="button" class="chip" data-value="Marketplace Order">Marketplace Order</button>
+              <button type="button" class="chip" data-value="Bank Transfer">Bank Transfer</button>
+              <button type="button" class="chip" data-value="Card Charge">Card Charge</button>
+              <button type="button" class="chip" data-value="E-wallet">E-wallet</button>
+            </div>
+            <input type="hidden" id="complaintType" value="Ride" />
+          </div>
+
+          <div class="field-row two-up">
+            <div class="field-group">
+              <label for="reference" class="field-label">Booking / Transaction ID *</label>
+              <input id="reference" name="reference" type="text" placeholder="e.g. TRX-984221" required />
+              <small class="error" data-for="reference"></small>
+            </div>
+            <div class="field-group">
+              <label for="date" class="field-label">Incident Date *</label>
+              <input id="date" name="date" type="date" required />
+              <small class="error" data-for="date"></small>
+            </div>
+          </div>
+
+          <div class="field-row two-up">
+            <div class="field-group">
+              <label for="channel" class="field-label">Preferred Contact *</label>
+              <select id="channel" name="channel" required>
+                <option value="">Select channel</option>
+                <option>Email</option>
+                <option>Phone</option>
+                <option>In-app Chat</option>
+                <option>SMS</option>
+              </select>
+              <small class="error" data-for="channel"></small>
+            </div>
+            <div class="field-group">
+              <label for="impact" class="field-label">Issue Severity *</label>
+              <select id="impact" name="impact" required>
+                <option value="">Select severity</option>
+                <option>Low - inconvenience only</option>
+                <option>Medium - delayed service/payment</option>
+                <option>High - financial or safety risk</option>
+              </select>
+              <small class="error" data-for="impact"></small>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="summary" class="field-label">Short Summary *</label>
+            <input id="summary" name="summary" type="text" maxlength="120" placeholder="What happened in one sentence?" required />
+            <small class="error" data-for="summary"></small>
+          </div>
+
+          <div class="field-group">
+            <label for="details" class="field-label">Detailed Description *</label>
+            <textarea id="details" name="details" rows="6" placeholder="Describe the issue, expected outcome, and any previous support contact." required></textarea>
+            <small class="error" data-for="details"></small>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Attachment</label>
+            <label for="attachment" class="upload-zone">
+              <input id="attachment" type="file" accept="image/*,.pdf" hidden />
+              <span class="upload-title">Drop receipt/screenshot here or click to upload</span>
+              <span class="upload-sub">PNG, JPG, PDF up to 10MB</span>
+            </label>
+            <p id="fileName" class="file-name">No file selected</p>
+          </div>
+
+          <label class="consent">
+            <input type="checkbox" id="consent" required />
+            <span>I confirm the information is accurate and may be used for investigation.</span>
+          </label>
+          <small class="error" data-for="consent"></small>
+
+          <div class="actions">
+            <button type="submit" class="btn-primary">Submit Complaint</button>
+            <p class="disclaimer">By submitting, you agree to complaint handling policy and data processing terms.</p>
+          </div>
+        </form>
+      </section>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
