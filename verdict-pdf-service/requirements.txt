@@ -1,0 +1,6 @@
+# requirements.txt
+fastapi
+uvicorn
+fpdf2
+python-dotenv
+supabase-py
