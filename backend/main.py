@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from shield import redact_pii
 from database import supabase
-from zai_client import chat_once, verify_connection
+from zai_client import chat_once, verify_connection, generate_staff_tldr
 from datetime import datetime, timezone
 
 app = FastAPI(title="Resolve Mesh Security Shield")
@@ -141,6 +141,10 @@ class LogRequest(BaseModel):
 class ZaiChatRequest(BaseModel):
     message: str
 
+
+class StaffTldrRequest(BaseModel):
+    case_text: str
+
 @app.post("/log")
 async def add_system_log(request: LogRequest):
     try:
@@ -174,6 +178,15 @@ async def zai_chat(request: ZaiChatRequest):
 async def zai_health():
     try:
         return verify_connection()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/zai/staff-tldr")
+async def zai_staff_tldr(request: StaffTldrRequest):
+    try:
+        tldr = generate_staff_tldr(request.case_text)
+        return {"summary_tldr": tldr}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

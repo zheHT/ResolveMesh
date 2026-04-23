@@ -1,5 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -20,6 +20,7 @@ import { ConfidenceGauge } from "@/components/ConfidenceGauge";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { StatusBadge, RiskBadge } from "@/components/StatusBadge";
 import { getDispute, maskEmail, maskPII, type Dispute } from "@/lib/disputes";
+import { generateStaffSummary } from "@/lib/staffSummary";
 import jsPDF from "jspdf";
 
 export const Route = createFileRoute("/disputes/$id")({
@@ -53,10 +54,35 @@ function DossierPage() {
   const [masked, setMasked] = useState(true);
   const [verdict, setVerdict] = useState<"pending" | "sent" | "rejected">("pending");
   const [reportOpen, setReportOpen] = useState(false);
+  const [staffTldr, setStaffTldr] = useState<string>("");
 
   const customer = maskPII(dispute.customer, masked);
   const email = maskEmail(dispute.customerEmail, masked);
   const card = masked ? "•••• •••• •••• ••••" : `•••• •••• •••• ${dispute.cardLast4}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    const caseText = [
+      `Case ${dispute.caseId}`,
+      `Channel: ${dispute.channel}`,
+      `Merchant: ${dispute.merchant}`,
+      `Amount: ${dispute.amount} ${dispute.currency}`,
+      `Reason: ${dispute.reason}`,
+      `Mesh synthesis: ${dispute.agentSummary}`,
+    ].join("\n");
+
+    generateStaffSummary(caseText)
+      .then((tldr) => {
+        if (!cancelled) setStaffTldr(tldr);
+      })
+      .catch(() => {
+        if (!cancelled) setStaffTldr("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dispute]);
 
   return (
     <AppShell>
@@ -153,6 +179,14 @@ function DossierPage() {
               <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-[0.18em]">
                 <FileSearch className="h-3.5 w-3.5" /> Mesh Synthesis
               </div>
+              {staffTldr ? (
+                <div className="mt-3 rounded-xl border border-border/60 bg-background/30 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                    Staff TL;DR (≤ 30 words)
+                  </div>
+                  <div className="mt-1 text-sm text-foreground/90">{staffTldr}</div>
+                </div>
+              ) : null}
               <p className="mt-3 text-[15px] leading-relaxed text-foreground/90">
                 {dispute.agentSummary}
               </p>

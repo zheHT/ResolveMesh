@@ -83,3 +83,32 @@ def verify_connection(model: str = "glm-5.1") -> dict:
         "ok": True,
     }
 
+
+def generate_staff_tldr(case_text: str, model: str = "glm-5.1") -> str:
+    """
+    Generate a <=30-word TL;DR for staff dashboard.
+    """
+    client = get_zai_client()
+    prompt = (
+        "You are the Summarizer Agent for a payments dispute operations dashboard.\n"
+        "Task: write ONE TL;DR sentence of 30 words or fewer.\n"
+        "Requirements:\n"
+        "- <= 30 words\n"
+        "- Must be factual and action-oriented\n"
+        "- No PII\n"
+        "- Output ONLY the TL;DR text (no quotes, no labels, no bullet points)\n\n"
+        f"Case details:\n{case_text.strip()}\n"
+    )
+
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        thinking={"type": "disabled"},
+        max_tokens=80,
+        temperature=0.3,
+    )
+
+    message = resp.choices[0].message
+    content = (getattr(message, "content", None) or "").strip()
+    return content or str(message)
+
