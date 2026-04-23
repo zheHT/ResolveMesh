@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+import bcrypt 
 from pydantic import BaseModel
 from shield import redact_pii
 from database import supabase
@@ -248,3 +249,55 @@ async def get_merchant_record(order_id: str):
         return res.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+# Setup password hashing with bcrypt directly
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/api/auth")
+async def authenticate_user(request: AuthRequest):
+    # 1. Search for the user by email
+    res = supabase.table("profiles").select("*").eq("email", request.email).execute()
+    
+    # 2. Case: USER EXISTS (Sign In)
+    if res.data:
+        user = res.data[0]
+        is_valid = verify_password(request.password, user["password_hash"])
+        
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Incorrect password for existing account.")
+        
+        return {
+            "status": "login",
+            "message": "Welcome back!",
+            "user": {"id": user["account_id"], "email": user["email"]}
+        }
+
+    # 3. Case: USER DOES NOT EXIST (Auto Sign Up)
+    else:
+        hashed_password = hash_password(request.password)
+        
+        new_user = {
+            "email": request.email,
+            "password_hash": hashed_password
+        }
+        
+        insert_res = supabase.table("profiles").insert(new_user).execute()
+        
+        if not insert_res.data:
+            raise HTTPException(status_code=500, detail="Failed to create account.")
+            
+        created_user = insert_res.data[0]
+        
+        return {
+            "status": "signup",
+            "message": "Account created successfully!",
+            "user": {"id": created_user["account_id"], "email": created_user["email"]}
+        }
