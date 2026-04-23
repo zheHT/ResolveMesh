@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as IntegrityHubRouteImport } from './routes/integrity-hub'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DisputesIdRouteImport } from './routes/disputes.$id'
 
@@ -19,9 +21,19 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IntegrityHubRoute = IntegrityHubRouteImport.update({
   id: '/integrity-hub',
   path: '/integrity-hub',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -37,34 +49,61 @@ const DisputesIdRoute = DisputesIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/integrity-hub': typeof IntegrityHubRoute
+  '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/disputes/$id': typeof DisputesIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/integrity-hub': typeof IntegrityHubRoute
+  '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/disputes/$id': typeof DisputesIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/integrity-hub': typeof IntegrityHubRoute
+  '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/disputes/$id': typeof DisputesIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/integrity-hub' | '/settings' | '/disputes/$id'
+  fullPaths:
+    | '/'
+    | '/dashboard'
+    | '/integrity-hub'
+    | '/login'
+    | '/settings'
+    | '/disputes/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/integrity-hub' | '/settings' | '/disputes/$id'
-  id: '__root__' | '/' | '/integrity-hub' | '/settings' | '/disputes/$id'
+  to:
+    | '/'
+    | '/dashboard'
+    | '/integrity-hub'
+    | '/login'
+    | '/settings'
+    | '/disputes/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/dashboard'
+    | '/integrity-hub'
+    | '/login'
+    | '/settings'
+    | '/disputes/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DashboardRoute: typeof DashboardRoute
   IntegrityHubRoute: typeof IntegrityHubRoute
+  LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRoute
   DisputesIdRoute: typeof DisputesIdRoute
 }
@@ -78,11 +117,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/integrity-hub': {
       id: '/integrity-hub'
       path: '/integrity-hub'
       fullPath: '/integrity-hub'
       preLoaderRoute: typeof IntegrityHubRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -104,7 +157,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DashboardRoute: DashboardRoute,
   IntegrityHubRoute: IntegrityHubRoute,
+  LoginRoute: LoginRoute,
   SettingsRoute: SettingsRoute,
   DisputesIdRoute: DisputesIdRoute,
 }

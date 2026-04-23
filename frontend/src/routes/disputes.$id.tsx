@@ -33,7 +33,7 @@ export const Route = createFileRoute("/disputes/$id")({
     <AppShell>
       <div className="p-12 text-center text-muted-foreground">
         Case not found.{" "}
-        <Link to="/" className="text-mint underline">
+        <Link to="/dashboard" className="text-mint underline">
           Return to inbox
         </Link>
       </div>
@@ -69,7 +69,7 @@ function DossierPage() {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <Link
-              to="/"
+              to="/dashboard"
               className="h-8 w-8 grid place-items-center rounded-lg border border-border/60 hover:bg-accent/50"
             >
               <ArrowLeft className="h-4 w-4" />

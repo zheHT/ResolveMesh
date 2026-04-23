@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
   Inbox,
@@ -13,12 +13,14 @@ import {
   Compass,
   Zap,
   MoreHorizontal,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, type ReactNode } from "react";
+import { clearAuthUser, getAuthUser } from "@/lib/auth";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const navItems = [
-  { to: "/", label: "Active Disputes", icon: Inbox, badge: 6 },
+  { to: "/dashboard", label: "Active Disputes", icon: Inbox, badge: 6 },
   { to: "/integrity-hub", label: "Integrity Hub", icon: ShieldCheck },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
@@ -31,8 +33,32 @@ const secondaryItems = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const path = location.pathname;
   const [collapsed, setCollapsed] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const authUser = getAuthUser();
+  const displayName = "admin";
+
+  useEffect(() => {
+    if (!profileOpen) return;
+
+    const onClickOutside = (event: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [profileOpen]);
+
+  const handleLogout = () => {
+    clearAuthUser();
+    setProfileOpen(false);
+    navigate({ to: "/login", replace: true });
+  };
 
   return (
     <div className="min-h-screen flex">
@@ -72,16 +98,36 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* User profile */}
         {!collapsed && (
-          <div className="px-4 pb-4">
-            <button className="w-full flex items-center gap-2.5 rounded-lg px-1 py-1.5 hover:bg-accent/40 transition-colors">
+          <div className="px-4 pb-4 relative" ref={profileRef}>
+            <button
+              onClick={() => setProfileOpen((open) => !open)}
+              className="w-full flex items-center gap-2.5 rounded-lg px-1 py-1.5 hover:bg-accent/40 transition-colors"
+              type="button"
+            >
               <div className="relative h-8 w-8 rounded-full bg-gradient-to-br from-mint via-electric to-mint shrink-0">
                 <span className="absolute inset-0.5 rounded-full bg-background/40" />
               </div>
               <span className="text-sm font-medium text-foreground/90 truncate">
-                avery_reyes
+                {displayName}
               </span>
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-auto" />
             </button>
+
+            {profileOpen && (
+              <div className="absolute left-4 right-4 top-[calc(100%-0.25rem)] z-50 rounded-xl border border-border/70 bg-background/95 p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.65)] backdrop-blur-xl">
+                <div className="px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Signed in as {authUser?.email ?? "admin@resolvemesh.local"}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -89,7 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav className={cn("flex-1 space-y-0.5", collapsed ? "px-2" : "px-3")}>
           {navItems.map((item) => {
             const isActive =
-              item.to === "/" ? path === "/" || path.startsWith("/disputes") : path === item.to;
+              item.to === "/dashboard" ? path === "/dashboard" || path.startsWith("/disputes") : path === item.to;
             const Icon = item.icon;
             return (
               <Link
@@ -100,7 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   "group relative flex items-center rounded-lg text-sm transition-all",
                   collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 py-2.5",
                   isActive
-                    ? "bg-accent/60 text-foreground font-medium"
+                    ? "bg-gradient-to-r from-mint/20 via-electric/10 to-transparent text-foreground font-medium border border-mint/25 shadow-[0_0_24px_-8px_oklch(0.86_0.19_165/0.5)]"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
                 )}
               >
@@ -195,7 +241,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             <div className="h-8 px-2.5 rounded-lg border border-border/60 flex items-center gap-2 text-xs">
               <div className="h-5 w-5 rounded-full bg-gradient-to-br from-mint to-electric" />
-              <span className="hidden sm:inline">Avery Reyes</span>
+              <span className="hidden sm:inline">admin</span>
             </div>
           </div>
         </header>

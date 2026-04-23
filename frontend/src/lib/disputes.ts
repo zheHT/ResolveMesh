@@ -1,5 +1,12 @@
 export type DisputeStatus = "Investigating" | "Flagged" | "Awaiting Action" | "Resolved";
 export type RiskLevel = "Low" | "Medium" | "High" | "Critical";
+export type ComplaintCategory =
+  | "Fraud"
+  | "Service Not Rendered"
+  | "Duplicate Charge"
+  | "Product Not as Described"
+  | "Unauthorized Recurring"
+  | "Account Takeover";
 
 export type Dispute = {
   id: string;
@@ -11,6 +18,8 @@ export type Dispute = {
   currency: string;
   merchant: string;
   reason: string;
+  category: ComplaintCategory;
+  suggestedRefund: number;
   status: DisputeStatus;
   risk: RiskLevel;
   confidence: number; // 0-100
@@ -30,6 +39,8 @@ export const disputes: Dispute[] = [
     currency: "USD",
     merchant: "Stripe • Linear Software",
     reason: "Unrecognized recurring charge",
+    category: "Unauthorized Recurring",
+    suggestedRefund: 1284.5,
     status: "Investigating",
     risk: "High",
     confidence: 82,
@@ -48,6 +59,8 @@ export const disputes: Dispute[] = [
     currency: "USD",
     merchant: "Apple • App Store",
     reason: "Fraudulent transaction",
+    category: "Fraud",
+    suggestedRefund: 4290.0,
     status: "Flagged",
     risk: "Critical",
     confidence: 94,
@@ -66,6 +79,8 @@ export const disputes: Dispute[] = [
     currency: "USD",
     merchant: "Uber • Rides",
     reason: "Service not received",
+    category: "Service Not Rendered",
+    suggestedRefund: 312.18,
     status: "Awaiting Action",
     risk: "Low",
     confidence: 71,
@@ -84,6 +99,8 @@ export const disputes: Dispute[] = [
     currency: "EUR",
     merchant: "Lufthansa • Flight Booking",
     reason: "Duplicate charge",
+    category: "Duplicate Charge",
+    suggestedRefund: 4935.0,
     status: "Investigating",
     risk: "Medium",
     confidence: 88,
@@ -102,6 +119,8 @@ export const disputes: Dispute[] = [
     currency: "USD",
     merchant: "Shopify • Threadbox Co.",
     reason: "Item not as described",
+    category: "Product Not as Described",
+    suggestedRefund: 312.0,
     status: "Awaiting Action",
     risk: "Low",
     confidence: 67,
@@ -120,6 +139,8 @@ export const disputes: Dispute[] = [
     currency: "USD",
     merchant: "Coinbase • Crypto Buy",
     reason: "Authorized push payment fraud",
+    category: "Account Takeover",
+    suggestedRefund: 18420.0,
     status: "Flagged",
     risk: "Critical",
     confidence: 96,
