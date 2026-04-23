@@ -1,20 +1,37 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { motion, AnimatePresence } from "framer-motion";
-import { Filter, Sparkles, TrendingUp, Check, ChevronDown } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { motion } from "framer-motion";
+import { Sparkles, TrendingUp } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
-import { DisputeCard } from "@/components/DisputeCard";
 import { getAuthUser } from "@/lib/auth";
-import { disputes, type Dispute } from "@/lib/disputes";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard")({
   component: Index,
 });
 
-const CHANNELS = ["All channels", "Visa", "Mastercard", "Amex", "ACH"] as const;
-type ChannelFilter = (typeof CHANNELS)[number];
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+type DashboardDispute = {
+  id: string;
+  status: string;
+  customer_info?: {
+    order_id?: string;
+    email?: string;
+    amount?: number;
+    issue_type?: string;
+    platform?: string;
+    account_id?: string;
+    evidence?: string;
+  };
+  agent_reports?: {
+    guardian?: {
+      summary?: string;
+    };
+    summary?: string;
+  };
+};
 
 function Stat({
   label,
@@ -48,11 +65,87 @@ function Stat({
   );
 }
 
+function statusTone(status: string) {
+  const normalized = status.toUpperCase();
+  if (normalized.includes("RESOLVED")) return "mint";
+  if (normalized.includes("FLAG") || normalized.includes("FRAUD")) return "warning";
+  return "electric";
+}
+
+function DashboardCard({ dispute, index }: { dispute: DashboardDispute; index: number }) {
+  const tone = statusTone(dispute.status);
+  const toneClass =
+    tone === "mint" ? "text-mint" : tone === "electric" ? "text-electric" : "text-[oklch(0.82_0.16_80)]";
+  const caseId = dispute.customer_info?.order_id ?? dispute.id;
+  const summary = dispute.agent_reports?.guardian?.summary ?? dispute.agent_reports?.summary;
+  const amount = dispute.customer_info?.amount;
+  const platform = dispute.customer_info?.platform;
+  const issueType = dispute.customer_info?.issue_type;
+  const email = dispute.customer_info?.email;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.04, ease: [0.16, 1, 0.3, 1] }}
+      className="glass rounded-2xl p-5"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono text-muted-foreground">
+            <span>{caseId}</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>{platform ?? "database"}</span>
+          </div>
+          <h3 className="mt-1 text-base font-semibold tracking-tight">
+            {caseId}
+          </h3>
+          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+            {summary || "No summary available from the database record."}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            {issueType && <span className="rounded-full border border-border/60 px-2 py-0.5">{issueType}</span>}
+            {email && <span className="rounded-full border border-border/60 px-2 py-0.5">{email}</span>}
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em]",
+            tone === "mint"
+              ? "border-mint/30 bg-mint/10 text-mint"
+              : tone === "warning"
+                ? "border-[oklch(0.82_0.16_80)]/30 bg-[oklch(0.82_0.16_80)]/10 text-[oklch(0.82_0.16_80)]"
+                : "border-electric/30 bg-electric/10 text-electric",
+          )}
+        >
+          {dispute.status}
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-4">
+        <div className={cn("text-xs uppercase tracking-[0.18em]", toneClass)}>
+          Live from Supabase
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          {typeof amount === "number"
+            ? new Intl.NumberFormat("en-US", {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 2,
+              }).format(amount)
+            : "Database row loaded into dashboard"}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function Index() {
   const navigate = useNavigate();
-  const [channel, setChannel] = useState<ChannelFilter>("All channels");
-  const [open_, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [disputes, setDisputes] = useState<DashboardDispute[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getAuthUser()) {
@@ -61,22 +154,50 @@ function Index() {
   }, [navigate]);
 
   useEffect(() => {
-    if (!open_) return;
-    const onClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [open_]);
+    const controller = new AbortController();
 
-  const filtered: Dispute[] =
-    channel === "All channels" ? disputes : disputes.filter((d) => d.channel === channel);
+    async function loadDisputes() {
+      try {
+        setLoading(true);
+        setError(null);
 
-  const open = disputes.filter((d) => d.status !== "Resolved").length;
-  const flagged = disputes.filter((d) => d.status === "Flagged").length;
-  const avgConfidence = Math.round(
-    disputes.reduce((s, d) => s + d.confidence, 0) / disputes.length,
-  );
+        const response = await fetch(`${API_BASE_URL}/api/disputes`, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to load disputes from the database.");
+        }
+
+        const payload = (await response.json()) as DashboardDispute[];
+        const activeDisputes = payload.filter(
+          (dispute) => dispute.status.toUpperCase() !== "RESOLVED",
+        );
+
+        setDisputes(activeDisputes);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Failed to load disputes.");
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadDisputes();
+    return () => controller.abort();
+  }, []);
+
+  const open = disputes.length;
+  const flagged = disputes.filter((d) => {
+    const status = d.status.toUpperCase();
+    return status.includes("FLAG") || status.includes("FRAUD");
+  }).length;
+  const awaiting = disputes.filter((d) => {
+    const status = d.status.toUpperCase();
+    return status.includes("PENDING") || status.includes("BRIEF") || status.includes("REVIEW");
+  }).length;
 
   if (!getAuthUser()) {
     return null;
@@ -105,20 +226,25 @@ function Index() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-8">
           {[
-            { label: "Open Cases", value: String(open), delta: "+2 today", tone: "mint" as const },
+            { label: "Open Cases", value: String(open), delta: "+ live", tone: "mint" as const },
             {
               label: "Flagged · Critical",
               value: String(flagged),
-              delta: "ATO cluster",
+              delta: "database sync",
               tone: "warning" as const,
             },
             {
-              label: "Avg AI Confidence",
-              value: `${avgConfidence}%`,
-              delta: "+4.1%",
+              label: "Awaiting Review",
+              value: String(awaiting),
+              delta: "non-resolved",
+              tone: "warning" as const,
+            },
+            {
+              label: "Database Rows",
+              value: String(disputes.length),
+              delta: "Supabase",
               tone: "electric" as const,
             },
-            { label: "SLA Compliance", value: "99.4%", delta: "30d", tone: "mint" as const },
           ].map((s, i) => (
             <motion.div
               key={s.label}
@@ -134,78 +260,27 @@ function Index() {
         <div className="mt-10 flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-tight">
             Pending disputes
-            <span className="ml-2 text-xs text-muted-foreground font-normal">
-              {filtered.length} of {disputes.length}
-            </span>
+            <span className="ml-2 text-xs text-muted-foreground font-normal">{disputes.length}</span>
           </h2>
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setOpen((o) => !o)}
-              className={cn(
-                "inline-flex items-center gap-2 text-xs rounded-lg px-2.5 py-1.5 border transition-colors",
-                channel !== "All channels"
-                  ? "border-mint/40 bg-mint/10 text-mint"
-                  : "border-border/60 text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Filter className="h-3.5 w-3.5" />
-              {channel}
-              <ChevronDown
-                className={cn("h-3 w-3 transition-transform", open_ && "rotate-180")}
-              />
-            </button>
-            <AnimatePresence>
-              {open_ && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute right-0 mt-2 w-48 rounded-xl glass-strong p-1 z-20 shadow-elegant"
-                >
-                  {CHANNELS.map((c) => {
-                    const count =
-                      c === "All channels"
-                        ? disputes.length
-                        : disputes.filter((d) => d.channel === c).length;
-                    const active = channel === c;
-                    return (
-                      <button
-                        key={c}
-                        onClick={() => {
-                          setChannel(c);
-                          setOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-colors",
-                          active
-                            ? "bg-mint/15 text-mint"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
-                        )}
-                      >
-                        <Check
-                          className={cn("h-3.5 w-3.5", active ? "opacity-100" : "opacity-0")}
-                        />
-                        <span className="flex-1 text-left">{c}</span>
-                        <span className="text-[10px] text-muted-foreground tabular-nums">
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
         </div>
 
         <div className="mt-4 space-y-3">
-          {filtered.length === 0 ? (
+          {loading ? (
             <div className="glass rounded-2xl p-10 text-center text-sm text-muted-foreground">
-              No disputes on the <span className="text-foreground">{channel}</span> channel.
+              Loading disputes from Supabase...
+            </div>
+          ) : error ? (
+            <div className="glass rounded-2xl p-10 text-center text-sm text-destructive">
+              {error}
+            </div>
+          ) : disputes.length === 0 ? (
+            <div className="glass rounded-2xl p-10 text-center text-sm text-muted-foreground">
+              No active disputes were returned from the database.
             </div>
           ) : (
-            filtered.map((d, i) => <DisputeCard key={d.id} dispute={d} index={i} />)
+            disputes.map((dispute, index) => (
+              <DashboardCard key={dispute.id} dispute={dispute} index={index} />
+            ))
           )}
         </div>
       </div>
