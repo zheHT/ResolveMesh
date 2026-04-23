@@ -1,5 +1,11 @@
 // ZaiPrompts.ts
-// Advisory System Prompts for Z.ai agents (Negotiator, Advocate, Auditor, Summarizer)
+// Advisory System Prompts for Z.ai agents
+//
+// Two agent systems available:
+// 1. OPERATIONAL AGENTS (Legacy): Negotiator, Advocate, Auditor, Summarizer
+//    - Focus: transaction reconciliation and internal validation
+// 2. LEGAL AGENTS (New): Customer Lawyer, Company Lawyer, Judge, Independent Lawyer
+//    - Focus: multi-party legal dispute resolution by perspective
 //
 // Important: our backend enforces a strict investigation summary schema that requires:
 // - `confidence_score` in [0..100]
@@ -86,3 +92,27 @@ Rules:
 - no PII
 - output ONLY the TL;DR text (no quotes, no labels, no bullet points).`,
 };
+
+// ============================================================================
+// LEGAL AGENT SYSTEM (New)
+// ============================================================================
+// Import legal agent prompts (defined in LegalAgentPrompts.ts)
+import { legalAgentPrompts } from "./LegalAgentPrompts";
+
+// Re-export legal agents as part of this module
+export { legalAgentPrompts, type LegalAgentType } from "./LegalAgentPrompts";
+
+// Export platform context utilities
+export { getPlatformContext, getDisputeParties, getAgentInstruction } from "./PlatformPartyMapping";
+export type { DisputeParty, PlatformContext, PartyType } from "./PlatformPartyMapping";
+
+/**
+ * Combined export: provides both operational and legal agent systems
+ * 
+ * Usage:
+ * - Operational: agentPrompts.negotiator, agentPrompts.advocate, etc.
+ * - Legal: legalAgentPrompts.customerLawyer, legalAgentPrompts.companyLawyer, etc.
+ * - Platform context: getPlatformContext("GrabFood"), getDisputeParties("Banking")
+ */
+export type AllAgentType = keyof typeof agentPrompts | keyof typeof legalAgentPrompts;
+
