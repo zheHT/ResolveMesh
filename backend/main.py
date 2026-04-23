@@ -97,20 +97,13 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
             }
         }
         
-<<<<<<< HEAD
         # 4. DATABASE INSERT
-        response = supabase.table("disputes").insert({
+        response = require_supabase().table("disputes").insert({
             "status": initial_status,
-=======
-        # 4. DATABASE INSERT
-        response = supabase.table("disputes").insert({
-            "status": initial_status,
->>>>>>> 5e3ae8a26a6c34be0c904c0f6ce619b7082e4209
             "customer_info": customer_data,
             "agent_reports": reports_data
         }).execute()
         
-<<<<<<< HEAD
         if not response.data:
             raise HTTPException(status_code=500, detail="Database insertion failed.")
 
@@ -118,17 +111,7 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
 
         # 5. LOGGING (Using your new 'visibility' column!)
         # This is a PUBLIC log so the frontend user knows the case is created
-        supabase.table("system_logs").insert({
-=======
-        if not response.data:
-            raise HTTPException(status_code=500, detail="Database insertion failed.")
-
-        case_id = response.data[0]['id']
-
-        # 5. LOGGING (Using your new 'visibility' column!)
-        # This is a PUBLIC log so the frontend user knows the case is created
-        supabase.table("system_logs").insert({
->>>>>>> 5e3ae8a26a6c34be0c904c0f6ce619b7082e4209
+        require_supabase().table("system_logs").insert({
             "event_name": "GUARDIAN_REDACTION_COMPLETE",
             "visibility": "PUBLIC", 
             "payload": {

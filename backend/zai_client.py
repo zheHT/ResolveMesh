@@ -1,10 +1,45 @@
 import os
+import io
+from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 from zai import ZaiClient
 
 
-load_dotenv()
+def _load_backend_env() -> None:
+    """
+    Load `backend/.env` robustly.
+
+    Some Windows editors save `.env` as UTF-16; python-dotenv may not parse it
+    reliably via `load_dotenv(path)` (it can appear as "no keys").
+    """
+    env_path = Path(__file__).with_name(".env")
+
+    # First try the normal path-based loader.
+    load_dotenv(dotenv_path=env_path)
+
+    # If the key is still missing, try decoding and parsing ourselves.
+    if os.getenv("ZAI_API_KEY"):
+        return
+
+    try:
+        raw = env_path.read_bytes()
+    except OSError:
+        return
+
+    # Heuristic: handle UTF-16 BOM; otherwise fall back to UTF-8.
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        text = raw.decode("utf-16")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+
+    values = dotenv_values(stream=io.StringIO(text))
+    for k, v in values.items():
+        if v is not None:
+            os.environ[k] = v
+
+
+_load_backend_env()
 
 
 def get_zai_client() -> ZaiClient:
