@@ -24,7 +24,7 @@ form.addEventListener("submit", (event) => {
 
   let hasError = false;
 
-  const requiredFields = ["reference", "summary", "details"];
+  const requiredFields = ["transactionId", "details"];
 
   requiredFields.forEach((id) => {
     const input = document.getElementById(id);
@@ -34,33 +34,45 @@ form.addEventListener("submit", (event) => {
     }
   });
 
-  const consent = document.getElementById("consent");
-  if (!consent.checked) {
-    setError("consent", "Please confirm before submitting.");
-    hasError = true;
-  }
-
   if (hasError) {
     showToast("Please complete required fields.");
     return;
   }
 
-  const payload = {
-    complaintType: complaintType.value,
-    reference: document.getElementById("reference").value.trim(),
-    summary: document.getElementById("summary").value.trim(),
-    details: document.getElementById("details").value.trim(),
-    attachment: attachment.files?.[0]?.name || null,
-  };
+  const formData = new FormData();
+  formData.append("platform", complaintType.value);
+  formData.append("transactionId", document.getElementById("transactionId").value.trim());
+  formData.append("summary", document.getElementById("summary").value.trim());
+  formData.append("details", document.getElementById("details").value.trim());
+  
+  if (attachment.files?.[0]) {
+    formData.append("attachment", attachment.files[0]);
+  }
 
-  console.log("Complaint submitted", payload);
-
-  showToast(`Complaint sent. Case ref: CMP-${Math.floor(100000 + Math.random() * 900000)}`);
-  form.reset();
-  chips.forEach((chip) => chip.classList.remove("selected"));
-  chips[0].classList.add("selected");
-  complaintType.value = chips[0].dataset.value;
-  fileName.textContent = "No file selected";
+  fetch("https://unemployed.app.n8n.cloud/webhook-test/userComplaint", {
+    method: "POST",
+    body: formData,
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((data) => {
+      console.log("Complaint submitted successfully", data);
+      showToast("Complaint submitted successfully");
+      form.reset();
+      chips.forEach((chip) => chip.classList.remove("selected"));
+      chips[0].classList.add("selected");
+      complaintType.value = chips[0].dataset.value;
+      fileName.textContent = "No file selected";
+      attachment.value = "";
+    })
+    .catch((error) => {
+      console.error("Error submitting complaint:", error);
+      showToast("Failed to submit complaint. Please try again.");
+    });
 });
 
 function setError(fieldId, message) {
