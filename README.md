@@ -2,16 +2,13 @@
 #### ResolveMesh is a professional-grade dispute management system designed to streamline customer claims while maintaining strict data privacy compliance (PDPA). It utilizes a multi-layered agentic AI approach to redact sensitive PII, detect fraudulent "double-dipping," and cross-reference claims against a digital twin bank ledger.
 
 ## 🛠️ Project Structure
-Plaintext
+```Plaintext
 ResolveMesh/
-
 ├── backend/            # FastAPI + Python (Privacy Shield & Logic)
-
 ├── frontend/           # React + Lovable (Dashboard & Ingest)
-
 ├── API_CONTRACT.md     # Documentation for endpoint JSON formats
-
 └── .env.example        # Template for API keys
+```
 
 ## ⚙️ Setup Instructions
 1. Prerequisites
