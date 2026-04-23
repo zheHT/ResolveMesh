@@ -301,3 +301,21 @@ async def authenticate_user(request: AuthRequest):
             "message": "Account created successfully!",
             "user": {"id": created_user["account_id"], "email": created_user["email"]}
         }
+    
+@app.get("/api/disputes")
+async def get_all_disputes():
+    """
+    Fetches the main list of disputes for the dashboard.
+    """
+    try:
+        # Fetch active disputes only; the dashboard hides resolved cases.
+        res = (
+            supabase.table("disputes")
+            .select("id, status, customer_info, agent_reports")
+            .neq("status", "RESOLVED")
+            .execute()
+        )
+        return res.data
+    except Exception as e:
+        print(f"Error fetching disputes: {e}")
+        raise HTTPException(status_code=500, detail="Could not load disputes list.")
