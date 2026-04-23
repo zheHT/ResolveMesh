@@ -4,10 +4,15 @@
 ## 🛠️ Project Structure
 Plaintext
 ResolveMesh/
+
 ├── backend/            # FastAPI + Python (Privacy Shield & Logic)
+
 ├── frontend/           # React + Lovable (Dashboard & Ingest)
+
 ├── API_CONTRACT.md     # Documentation for endpoint JSON formats
+
 └── .env.example        # Template for API keys
+
 ## ⚙️ Setup Instructions
 1. Prerequisites
 - Python 3.10+
@@ -18,7 +23,7 @@ ResolveMesh/
 The backend manages the security layer and database orchestration.
 
 ```
-Bash
+(Bash)
 ## Navigate to backend
 cd backend
 
@@ -44,7 +49,7 @@ The API will be live at http://localhost:8000. Access Swagger UI at http://local
 The frontend provides the "Sleuth" dashboard and customer ingest portal.
 
 ```
-Bash
+(Bash)
 # In a new terminal window
 cd frontend
 npm install
@@ -55,7 +60,7 @@ The dashboard will be live at http://localhost:5173.
 🔑 Environment Variables
 Create a .env file in the backend directory and add the following keys:
 ```
-Plaintext
+(Plaintext)
 SUPABASE_URL=your_project_url
 SUPABASE_SERVICE_KEY=your_service_role_key
 ZAI_API_KEY=your_zai_platform_key
