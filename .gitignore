@@ -1,5 +1,22 @@
-# .gitignore
-n8n_data/
+# Environments
+venv/
+.venv/
+env/
+bin/
+include/
+lib/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local config & Logs
 .env
-node_modules/
 *.log
+n8n_data/
+
+# OS/IDE specific
+.DS_Store
+.vscode/
+.idea/
