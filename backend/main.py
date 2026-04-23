@@ -227,3 +227,24 @@ async def upload_investigation_report(dispute_id: str, file: UploadFile = File(.
         return {"status": "Report Uploaded", "path": file_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+# MERCHANT ADAPTER (The 3rd Party Plugin)
+@app.get("/api/merchant/{order_id}")
+async def get_merchant_record(order_id: str):
+    try:
+        # We query by order_id because the Merchant doesn't know our internal dispute_id
+        # Querying a specific transaction by looking inside the JSONB column
+        res = (
+            supabase.table("transactions")
+            .select("*")
+            .filter("ledger_data->>order_id", "eq", order_id)
+            .execute()
+        )
+        
+        if not res.data:
+            # If no record, we return a 404 so the AI knows the merchant has no data
+            raise HTTPException(status_code=404, detail="No merchant record found for this order.")
+            
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
