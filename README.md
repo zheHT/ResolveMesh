@@ -1,5 +1,5 @@
 # 🛡️ ResolveMesh: AI-Powered Dispute Resolution & Privacy Shield
-## ResolveMesh is a professional-grade dispute management system designed to streamline customer claims while maintaining strict data privacy compliance (PDPA). It utilizes a multi-layered agentic AI approach to redact sensitive PII, detect fraudulent "double-dipping," and cross-reference claims against a digital twin bank ledger.
+#### ResolveMesh is a professional-grade dispute management system designed to streamline customer claims while maintaining strict data privacy compliance (PDPA). It utilizes a multi-layered agentic AI approach to redact sensitive PII, detect fraudulent "double-dipping," and cross-reference claims against a digital twin bank ledger.
 
 ## 🛠️ Project Structure
 Plaintext
