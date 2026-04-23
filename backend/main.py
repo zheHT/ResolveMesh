@@ -18,8 +18,42 @@ app.add_middleware(
 )
 
 class DisputeRequest(BaseModel):
+    # Metadata (For Vendor Portals/Grab/Banks)
+    api_key: str = "INTERNAL_PORTAL" 
+    platform: str = "General"
+    
+    # User/Account Data
     customer_email: str
-    raw_text: str
+    account_id: str = "UNKNOWN"
+    
+    # The Meat of the Dispute
+    order_id: str = "N/A"
+    amount: float = 0.0
+    issue_type: str = "General" # e.g., "Moldy Bread", "Double Charge"
+    raw_text: str  # This is where the Email body or Form Description goes
+    
+    # Evidence
+    evidence_url: str = None
+
+# --- UTILITY FUNCTIONS ---
+async def is_duplicate_claim(order_id: str, customer_email: str):
+    """
+    Anti-Fraud Logic: Checks if an active or finished dispute 
+    already exists for this specific order and customer.
+    """
+    # If it's a messy email without an Order ID, we can't reliably check for duplicates yet.
+    if order_id == "N/A" or not order_id:
+        return False 
+        
+    # Query Supabase using JSONB arrow operators (->>) to peek inside 'customer_info'
+    res = supabase.table("disputes") \
+        .select("id") \
+        .eq("customer_info->>order_id", order_id) \
+        .eq("customer_info->>email", customer_email) \
+        .execute()
+        
+    # Returns True if any rows are found, False otherwise
+    return len(res.data) > 0
 
 def require_supabase():
     if supabase is None:
@@ -30,56 +64,95 @@ def require_supabase():
     return supabase
 
 @app.post("/redact")
-async def process_dispute(request: DisputeRequest):
+async def process_dispute(request: DisputeRequest): # Use the new Unified class
     try:
-        # 1. Run the Redaction Logic
-        clean_text = redact_pii(request.raw_text)
+        # 1. ANTI-FRAUD CHECK 
+        # We check if this specific Order ID has been disputed before
+        is_duplicate = await is_duplicate_claim(request.order_id, request.customer_email)
         
-        # 2. Structure the data for our NoSQL-style columns
-        # We store the email in customer_info
+        # Determine initial status
+        initial_status = "SUSPECTED_FRAUD" if is_duplicate else "PENDING"
+
+        # 2. REDACTION (The Guardian's Job)
+        clean_text = redact_pii(
+            request.raw_text,
+            allow_list=[request.order_id, request.platform]
+        )
+        
+        # 3. STRUCTURE DATA (Capture everything from the Unified Request)
         customer_data = {
-            "email": request.customer_email
+            "email": request.customer_email,
+            "platform": request.platform,
+            "account_id": request.account_id,
+            "order_id": request.order_id,
+            "amount": request.amount,
+            "issue_type": request.issue_type,
+            "evidence_url": request.evidence_url
         }
         
-        # We store the Guardian's work in agent_reports
-        # We use a key like 'guardian' so other agents can add their reports later!
         reports_data = {
             "guardian": {
                 "summary": clean_text,
-                "redacted_at": datetime.now(timezone.utc).isoformat() # Mock timestamp for now
+                "redacted_at": datetime.now(timezone.utc).isoformat()
             }
         }
         
-        # 3. Perform the Insert
-        response = require_supabase().table("disputes").insert({
-            "status": "PENDING",
+<<<<<<< HEAD
+        # 4. DATABASE INSERT
+        response = supabase.table("disputes").insert({
+            "status": initial_status,
+=======
+        # 4. DATABASE INSERT
+        response = supabase.table("disputes").insert({
+            "status": initial_status,
+>>>>>>> 5e3ae8a26a6c34be0c904c0f6ce619b7082e4209
             "customer_info": customer_data,
             "agent_reports": reports_data
         }).execute()
         
-        if not response.data or len(response.data) == 0:
-            raise HTTPException(status_code=500, detail="Dispute created but no data returned from database.")
-        
-        require_supabase().table("system_logs").insert({
+<<<<<<< HEAD
+        if not response.data:
+            raise HTTPException(status_code=500, detail="Database insertion failed.")
+
+        case_id = response.data[0]['id']
+
+        # 5. LOGGING (Using your new 'visibility' column!)
+        # This is a PUBLIC log so the frontend user knows the case is created
+        supabase.table("system_logs").insert({
+=======
+        if not response.data:
+            raise HTTPException(status_code=500, detail="Database insertion failed.")
+
+        case_id = response.data[0]['id']
+
+        # 5. LOGGING (Using your new 'visibility' column!)
+        # This is a PUBLIC log so the frontend user knows the case is created
+        supabase.table("system_logs").insert({
+>>>>>>> 5e3ae8a26a6c34be0c904c0f6ce619b7082e4209
             "event_name": "GUARDIAN_REDACTION_COMPLETE",
-            "payload": {"dispute_id": response.data[0]['id'], "status": "PENDING"}
+            "visibility": "PUBLIC", 
+            "payload": {
+                "dispute_id": case_id,
+                "message": f"PII secured. Case initialized as {initial_status}."
+            }
         }).execute()
         
         return {
             "status": "success",
-            "case_id": response.data[0]['id'],
-            "redacted_text": clean_text
+            "case_id": case_id,
+            "redacted_text": clean_text,
+            "initial_status": initial_status
         }
     
     except Exception as e:
-        # If something goes wrong (e.g. Supabase is down), we show the error
-        print(f"Database Error: {e}")
-        raise HTTPException(status_code=500, detail="Database insertion failed.")
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 class LogRequest(BaseModel):
     dispute_id: str
     agent_nickname: str # e.g., "The Sleuth", "The Judge"
     event: str
+    visibility: str = "INTERNAL" # Defaults to INTERNAL if not provided
     details: dict = {}
 
 class ZaiChatRequest(BaseModel):
@@ -91,6 +164,7 @@ async def add_system_log(request: LogRequest):
         # Pack everything into the 'payload' column to match your SQL schema
         log_entry = {
             "event_name": f"{request.agent_nickname}_{request.event}",
+            "visibility": request.visibility,
             "payload": {
                 "dispute_id": request.dispute_id,
                 "actor": request.agent_nickname,
@@ -191,6 +265,7 @@ async def upload_investigation_report(dispute_id: str, file: UploadFile = File(.
         
         require_supabase().table("system_logs").insert({
             "event_name": "REPORT_UPLOADED",
+            "visibility": "INTERNAL",
             "payload": {"dispute_id": dispute_id, "file_path": file_path}
         }).execute()
         
