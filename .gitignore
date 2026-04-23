@@ -1,22 +1,32 @@
-# Environments
+# --- AI & Tool Metadata ---
+.lovable/
+.cursor/
+.bolt/
+
+# --- Python / Backend ---
 venv/
 .venv/
-env/
-bin/
-include/
-lib/
-
-# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 
-# Local config & Logs
+# --- Node / Frontend (Lovable uses this) ---
+node_modules/
+dist/
+.cache/
+.eslintcache
+.vercel/
+.render/
+
+# --- Environment & Keys (CRITICAL) ---
 .env
+.env.local
+.env.*.local
 *.log
-n8n_data/
 
-# OS/IDE specific
-.DS_Store
+# --- IDE & OS ---
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
