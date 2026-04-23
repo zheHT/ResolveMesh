@@ -64,31 +64,28 @@
 
         <form id="complaintForm" novalidate>
           <div class="field-group">
-            <label class="field-label">Complaint Type *</label>
-            <div class="chip-grid" role="radiogroup" aria-label="Complaint type">
-              <button type="button" class="chip selected" data-value="Ride">Ride</button>
-              <button type="button" class="chip" data-value="Food Delivery">Food Delivery</button>
-              <button type="button" class="chip" data-value="Marketplace Order">Marketplace Order</button>
-              <button type="button" class="chip" data-value="Bank Transfer">Bank Transfer</button>
-              <button type="button" class="chip" data-value="Card Charge">Card Charge</button>
-              <button type="button" class="chip" data-value="E-wallet">E-wallet</button>
+            <label class="field-label">Platform *</label>
+            <div class="chip-grid" role="radiogroup" aria-label="Platform">
+              <button type="button" class="chip selected" data-value="Grab Food">Grab Food</button>
+              <button type="button" class="chip" data-value="Shopee">Shopee</button>
+              <button type="button" class="chip" data-value="Maybank">Maybank</button>
             </div>
-            <input type="hidden" id="complaintType" value="Ride" />
+            <input type="hidden" id="complaintType" value="Grab Food" />
           </div>
 
           <div class="field-row two-up">
             <div class="field-group">
-              <label for="reference" class="field-label">Booking / Transaction ID *</label>
-              <input id="reference" name="reference" type="text" placeholder="e.g. TRX-984221" required />
-              <small class="error" data-for="reference"></small>
+              <label for="transactionId" class="field-label">Booking / Transaction ID *</label>
+              <input id="transactionId" name="transactionId" type="text" placeholder="e.g. TRX-984221" required />
+              <small class="error" data-for="transactionId"></small>
             </div>
           </div>
 
 
 
           <div class="field-group">
-            <label for="summary" class="field-label">Short Summary *</label>
-            <input id="summary" name="summary" type="text" maxlength="120" placeholder="What happened in one sentence?" required />
+            <label for="summary" class="field-label">Short Summary</label>
+            <input id="summary" name="summary" type="text" maxlength="120" placeholder="What happened in one sentence?"/>
             <small class="error" data-for="summary"></small>
           </div>
 
@@ -107,12 +104,6 @@
             </label>
             <p id="fileName" class="file-name">No file selected</p>
           </div>
-
-          <label class="consent">
-            <input type="checkbox" id="consent" required />
-            <span>I confirm the information is accurate and may be used for investigation.</span>
-          </label>
-          <small class="error" data-for="consent"></small>
 
           <div class="actions">
             <button type="submit" class="btn-primary">Submit Complaint</button>
