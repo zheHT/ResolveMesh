@@ -1,0 +1,20 @@
+{
+  "dispute_id": "UUID_FROM_DISPUTES_TABLE",
+  "agent": "Negotiator",
+  "confidence_score": 87,
+  "reasoning": "Explain the decision. Must explicitly mention which Supabase rows were used and why the hashes/timestamps match or differ.",
+  "evidence": [
+    {
+      "supabase": {
+        "table": "system_logs",
+        "row_id": "12345",
+        "json_path": "payload.audit_hash"
+      },
+      "hash": "0x8a21…b04f",
+      "details": "System log row contains audit hash for the posted provisional credit event."
+    }
+  ],
+  "summary_tldr": "Hashes and timestamps corroborate a single capture; recommend deny duplicate-charge claim pending merchant confirmation.",
+  "created_at": "2026-04-23T12:34:56+00:00",
+  "template": "verdict"
+}

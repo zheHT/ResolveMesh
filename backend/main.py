@@ -2,10 +2,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from shield import redact_pii
-from database import supabase
-from zai_client import chat_once, verify_connection, generate_staff_tldr
+try:
+    # When running from within backend/ (e.g. `uvicorn main:app --reload`)
+    from shield import redact_pii  # type: ignore
+    from database import supabase  # type: ignore
+    from zai_client import chat_once, verify_connection, generate_staff_tldr  # type: ignore
+    from pdf_service import fetch_dispute_bundle, build_pdf_bytes, upload_pdf  # type: ignore
+except ModuleNotFoundError:
+    # When importing as a package (e.g. `uvicorn backend.main:app --reload`)
+    from backend.shield import redact_pii  # type: ignore
+    from backend.database import supabase  # type: ignore
+    from backend.zai_client import chat_once, verify_connection, generate_staff_tldr  # type: ignore
+    from backend.pdf_service import fetch_dispute_bundle, build_pdf_bytes, upload_pdf  # type: ignore
 from datetime import datetime, timezone
+from typing import Any, Literal, Optional
 
 app = FastAPI(title="Resolve Mesh Security Shield")
 
@@ -145,6 +155,39 @@ class ZaiChatRequest(BaseModel):
 class StaffTldrRequest(BaseModel):
     case_text: str
 
+
+class EvidenceSupabaseRef(BaseModel):
+    table: str
+    row_id: str
+    column: Optional[str] = None
+    json_path: Optional[str] = None
+
+
+class EvidenceReference(BaseModel):
+    supabase: EvidenceSupabaseRef
+    transaction_id: Optional[str] = None
+    hash: Optional[str] = None
+    details: str
+
+
+class InvestigationSummaryPayload(BaseModel):
+    dispute_id: str
+    agent: str
+    confidence_score: int
+    reasoning: str
+    evidence: list[EvidenceReference]
+    summary_tldr: str
+    pdf_url: Optional[str] = None
+    created_at: str
+    template: Optional[Literal["police", "internal", "verdict"]] = None
+
+
+class GeneratePdfRequest(BaseModel):
+    dispute_id: str
+    template: Literal["police", "internal", "verdict"] = "verdict"
+    # Optionally provide the investigation summary; if missing we try disputes.agent_reports.investigation_summary
+    summary: Optional[dict[str, Any]] = None
+
 @app.post("/log")
 async def add_system_log(request: LogRequest):
     try:
@@ -187,6 +230,101 @@ async def zai_staff_tldr(request: StaffTldrRequest):
     try:
         tldr = generate_staff_tldr(request.case_text)
         return {"summary_tldr": tldr}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/disputes/{dispute_id}/investigation-summary")
+async def upsert_investigation_summary(dispute_id: str, payload: InvestigationSummaryPayload):
+    """
+    JSON Tooling target for n8n:
+    - Validates shape (confidence_score + explicit evidence citations)
+    - Stores under disputes.agent_reports.investigation_summary (JSONB)
+    """
+    try:
+        if payload.dispute_id != dispute_id:
+            raise HTTPException(status_code=400, detail="dispute_id mismatch between path and payload.")
+
+        # Fetch existing agent_reports so we can merge safely.
+        res = require_supabase().table("disputes").select("agent_reports").eq("id", dispute_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Dispute not found.")
+
+        current = res.data[0].get("agent_reports") or {}
+        current["investigation_summary"] = payload.model_dump()
+
+        require_supabase().table("disputes").update({"agent_reports": current}).eq("id", dispute_id).execute()
+
+        require_supabase().table("system_logs").insert(
+            {
+                "event_name": "INVESTIGATION_SUMMARY_UPSERTED",
+                "visibility": "INTERNAL",
+                "payload": {
+                    "dispute_id": dispute_id,
+                    "agent": payload.agent,
+                    "confidence_score": payload.confidence_score,
+                },
+            }
+        ).execute()
+
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/generate-pdf")
+async def generate_verdict_pdf(req: GeneratePdfRequest):
+    """
+    Verdict PDF Service (FPDF2):
+    - Fetches dispute + related system logs from Supabase
+    - Renders one of 3 templates: police/internal/verdict
+    - Uploads to Supabase Storage bucket (set SUPABASE_VERDICT_BUCKET)
+    - Returns public URL for n8n
+    """
+    try:
+        bundle = fetch_dispute_bundle(req.dispute_id)
+        dispute = bundle["dispute"]
+
+        summary = req.summary
+        if summary is None:
+            agent_reports = dispute.get("agent_reports") or {}
+            summary = agent_reports.get("investigation_summary")
+
+        if not summary:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing summary. Provide req.summary or store disputes.agent_reports.investigation_summary first.",
+            )
+
+        pdf_bytes = build_pdf_bytes(req.template, bundle, summary)
+        url = upload_pdf(req.dispute_id, req.template, pdf_bytes)
+
+        # Store pdf_url back into the investigation summary (best-effort)
+        try:
+            res = require_supabase().table("disputes").select("agent_reports").eq("id", req.dispute_id).execute()
+            if res.data:
+                current = res.data[0].get("agent_reports") or {}
+                inv = current.get("investigation_summary") or summary
+                if isinstance(inv, dict):
+                    inv["pdf_url"] = url
+                    current["investigation_summary"] = inv
+                    require_supabase().table("disputes").update({"agent_reports": current}).eq("id", req.dispute_id).execute()
+        except Exception:
+            pass
+
+        require_supabase().table("system_logs").insert(
+            {
+                "event_name": "VERDICT_PDF_GENERATED",
+                "visibility": "INTERNAL",
+                "payload": {"dispute_id": req.dispute_id, "template": req.template, "pdf_url": url},
+            }
+        ).execute()
+
+        return {"pdf_url": url}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
