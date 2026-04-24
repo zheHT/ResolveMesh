@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { Sparkles, TrendingUp } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { getAuthUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type DashboardDispute = {
   id: string;
   status: string;
+  created_at?: string;
   customer_info?: {
     order_id?: string;
     email?: string;
@@ -23,7 +24,7 @@ type DashboardDispute = {
     issue_type?: string;
     platform?: string;
     account_id?: string;
-    evidence?: string;
+    evidence_url?: string;
   };
   agent_reports?: {
     guardian?: {
@@ -76,30 +77,33 @@ function DashboardCard({ dispute, index }: { dispute: DashboardDispute; index: n
   const tone = statusTone(dispute.status);
   const toneClass =
     tone === "mint" ? "text-mint" : tone === "electric" ? "text-electric" : "text-[oklch(0.82_0.16_80)]";
-  const caseId = dispute.customer_info?.order_id ?? dispute.id;
   const summary = dispute.agent_reports?.guardian?.summary ?? dispute.agent_reports?.summary;
   const amount = dispute.customer_info?.amount;
   const platform = dispute.customer_info?.platform;
   const issueType = dispute.customer_info?.issue_type;
   const email = dispute.customer_info?.email;
+  const caseNumber = index + 1;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.04, ease: [0.16, 1, 0.3, 1] }}
-      className="glass rounded-2xl p-5"
+      className="glass rounded-2xl"
     >
+      <Link
+        to="/disputes/$id"
+        params={{ id: dispute.id }}
+        className="block p-5 transition-colors hover:bg-white/5"
+      >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono text-muted-foreground">
-            <span>{caseId}</span>
+            <span>Case #{caseNumber}</span>
             <span className="text-muted-foreground/40">·</span>
             <span>{platform ?? "database"}</span>
           </div>
-          <h3 className="mt-1 text-base font-semibold tracking-tight">
-            {caseId}
-          </h3>
+          <h3 className="mt-1 text-base font-semibold tracking-tight">Case #{caseNumber}</h3>
           <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
             {summary || "No summary available from the database record."}
           </p>
@@ -137,6 +141,7 @@ function DashboardCard({ dispute, index }: { dispute: DashboardDispute; index: n
             : "Database row loaded into dashboard"}
         </div>
       </div>
+      </Link>
     </motion.div>
   );
 }
@@ -166,10 +171,23 @@ function Index() {
         });
 
         if (!response.ok) {
-          throw new Error("Failed to load disputes from the database.");
+          let errorMessage = "Failed to load disputes from the database.";
+          try {
+            const errorPayload = (await response.json()) as { detail?: string };
+            if (typeof errorPayload?.detail === "string" && errorPayload.detail.trim()) {
+              errorMessage = errorPayload.detail;
+            }
+          } catch {
+            // Ignore JSON parse errors and keep fallback message.
+          }
+          throw new Error(errorMessage);
         }
 
-        const payload = (await response.json()) as DashboardDispute[];
+        const payload = await response.json();
+        if (!Array.isArray(payload)) {
+          throw new Error("Disputes API returned an invalid payload.");
+        }
+
         const activeDisputes = payload.filter(
           (dispute) => dispute.status.toUpperCase() !== "RESOLVED",
         );
@@ -190,6 +208,16 @@ function Index() {
   }, []);
 
   const open = disputes.length;
+  const orderedDisputes = [...disputes].sort((left, right) => {
+    const leftTime = left.created_at ? Date.parse(left.created_at) : Number.POSITIVE_INFINITY;
+    const rightTime = right.created_at ? Date.parse(right.created_at) : Number.POSITIVE_INFINITY;
+
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+
+    return 0;
+  });
   const flagged = disputes.filter((d) => {
     const status = d.status.toUpperCase();
     return status.includes("FLAG") || status.includes("FRAUD");
@@ -278,7 +306,7 @@ function Index() {
               No active disputes were returned from the database.
             </div>
           ) : (
-            disputes.map((dispute, index) => (
+            orderedDisputes.map((dispute, index) => (
               <DashboardCard key={dispute.id} dispute={dispute} index={index} />
             ))
           )}
