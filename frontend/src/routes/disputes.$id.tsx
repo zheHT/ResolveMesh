@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, ArrowLeft, Building2, CreditCard, User } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { maskEmail, maskPII } from "@/lib/disputes";
+import { getPIIMaskEnabled, PII_MASK_CHANGED_EVENT } from "@/lib/ui-state";
 import { cn } from "@/lib/utils";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -93,6 +95,34 @@ function normalizeApiError(errorPayload: unknown, fallbackMessage: string) {
   return fallbackMessage;
 }
 
+function maskSensitiveValue(fieldKey: string, value: string, masked: boolean) {
+  if (!masked || value === "N/A") {
+    return value;
+  }
+
+  const key = fieldKey.toLowerCase();
+
+  if (key.includes("email")) {
+    return maskEmail(value, true);
+  }
+
+  if (
+    key.includes("account") ||
+    key.includes("order") ||
+    key.includes("card") ||
+    key.includes("credential") ||
+    key.includes("token") ||
+    key.includes("wallet") ||
+    key.includes("beneficiary") ||
+    key.includes("evidence") ||
+    key.includes("phone")
+  ) {
+    return maskPII(value, true);
+  }
+
+  return value;
+}
+
 function DisputeInvestigationPage() {
   const { id } = Route.useParams();
 
@@ -103,6 +133,20 @@ function DisputeInvestigationPage() {
   const [merchantRecord, setMerchantRecord] = useState<GenericRecord | null>(null);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [merchantError, setMerchantError] = useState<string | null>(null);
+  const [piiMasked, setPiiMasked] = useState(true);
+
+  useEffect(() => {
+    setPiiMasked(getPIIMaskEnabled());
+
+    const syncMask = () => setPiiMasked(getPIIMaskEnabled());
+    window.addEventListener(PII_MASK_CHANGED_EVENT, syncMask);
+    window.addEventListener("storage", syncMask);
+
+    return () => {
+      window.removeEventListener(PII_MASK_CHANGED_EVENT, syncMask);
+      window.removeEventListener("storage", syncMask);
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -271,17 +315,19 @@ function DisputeInvestigationPage() {
                 title="Customer (Claims)"
                 subtitle="Original complaint and provided metadata"
               >
-                <FieldRow k="Email" v={safeString(dispute?.customer_info?.email)} />
-                <FieldRow k="Order ID" v={safeString(dispute?.customer_info?.order_id)} />
-                <FieldRow k="Issue Type" v={safeString(dispute?.customer_info?.issue_type)} />
-                <FieldRow k="Platform" v={safeString(dispute?.customer_info?.platform)} />
-                <FieldRow k="Amount" v={safeCurrency(dispute?.customer_info?.amount)} />
-                <FieldRow k="Evidence URL" v={safeString(dispute?.customer_info?.evidence_url)} />
+                <FieldRow k="Email" v={safeString(dispute?.customer_info?.email)} masked={piiMasked} />
+                <FieldRow k="Order ID" v={safeString(dispute?.customer_info?.order_id)} masked={piiMasked} />
+                <FieldRow k="Issue Type" v={safeString(dispute?.customer_info?.issue_type)} masked={piiMasked} />
+                <FieldRow k="Platform" v={safeString(dispute?.customer_info?.platform)} masked={piiMasked} />
+                <FieldRow k="Amount" v={safeCurrency(dispute?.customer_info?.amount)} masked={piiMasked} />
+                <FieldRow k="Evidence URL" v={safeString(dispute?.customer_info?.evidence_url)} masked={piiMasked} />
                 <div className="mt-4 rounded-xl border border-border/60 p-3 bg-background/30">
                   <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                     Complaint Text
                   </div>
-                  <p className="mt-1 text-sm leading-relaxed text-foreground/90">{complaintText}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-foreground/90">
+                    {maskPII(complaintText, piiMasked)}
+                  </p>
                 </div>
               </ColumnCard>
 
@@ -293,7 +339,7 @@ function DisputeInvestigationPage() {
                 {ledgerError ? (
                   <InlineError text={ledgerError} />
                 ) : ledgerRecord ? (
-                  <JsonBlock data={ledgerRecord} />
+                  <JsonBlock data={ledgerRecord} masked={piiMasked} />
                 ) : (
                   <EmptyState text="No bank ledger data returned." />
                 )}
@@ -307,7 +353,7 @@ function DisputeInvestigationPage() {
                 {merchantError ? (
                   <InlineError text={merchantError} />
                 ) : merchantRecord ? (
-                  <JsonBlock data={merchantRecord} />
+                  <JsonBlock data={merchantRecord} masked={piiMasked} />
                 ) : (
                   <EmptyState text="No merchant data returned." />
                 )}
@@ -396,12 +442,19 @@ function ExpandableContent({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FieldRow({ k, v }: { k: string; v: string }) {
+function FieldRow({ k, v, masked }: { k: string; v: string; masked: boolean }) {
+  const displayValue = maskSensitiveValue(k, v, masked);
+
   return (
     <div className="rounded-lg border border-border/60 p-2.5 bg-background/30">
       <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{k}</div>
-      <div className={cn("mt-0.5 text-sm break-all", v === "N/A" ? "text-muted-foreground" : "text-foreground")}>
-        {v}
+      <div
+        className={cn(
+          "mt-0.5 text-sm break-all",
+          displayValue === "N/A" ? "text-muted-foreground" : "text-foreground",
+        )}
+      >
+        {displayValue}
       </div>
     </div>
   );
@@ -415,7 +468,7 @@ function EmptyState({ text }: { text: string }) {
   return <div className="rounded-lg border border-border/60 bg-background/30 p-3 text-sm text-muted-foreground">{text}</div>;
 }
 
-function JsonBlock({ data }: { data: GenericRecord }) {
+function JsonBlock({ data, masked }: { data: GenericRecord; masked: boolean }) {
   const entries = Object.entries(data);
 
   if (entries.length === 0) {
@@ -431,11 +484,12 @@ function JsonBlock({ data }: { data: GenericRecord }) {
             : typeof value === "string"
               ? value
               : String(value);
+        const maskedValue = maskSensitiveValue(key, displayValue, masked);
 
         return (
           <div key={key} className="rounded-lg border border-border/60 p-2.5 bg-background/30">
             <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{key}</div>
-            <pre className="mt-1 text-xs whitespace-pre-wrap break-all text-foreground/90">{displayValue}</pre>
+            <pre className="mt-1 text-xs whitespace-pre-wrap break-all text-foreground/90">{maskedValue}</pre>
           </div>
         );
       })}

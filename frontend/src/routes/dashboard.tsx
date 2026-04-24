@@ -5,6 +5,13 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { getAuthUser } from "@/lib/auth";
+import { maskEmail } from "@/lib/disputes";
+import {
+  addCaseNotification,
+  getNotificationsVisible,
+  getPIIMaskEnabled,
+  PII_MASK_CHANGED_EVENT,
+} from "@/lib/ui-state";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard")({
@@ -73,7 +80,15 @@ function statusTone(status: string) {
   return "electric";
 }
 
-function DashboardCard({ dispute, index }: { dispute: DashboardDispute; index: number }) {
+function DashboardCard({
+  dispute,
+  index,
+  piiMasked,
+}: {
+  dispute: DashboardDispute;
+  index: number;
+  piiMasked: boolean;
+}) {
   const tone = statusTone(dispute.status);
   const toneClass =
     tone === "mint" ? "text-mint" : tone === "electric" ? "text-electric" : "text-[oklch(0.82_0.16_80)]";
@@ -82,6 +97,7 @@ function DashboardCard({ dispute, index }: { dispute: DashboardDispute; index: n
   const platform = dispute.customer_info?.platform;
   const issueType = dispute.customer_info?.issue_type;
   const email = dispute.customer_info?.email;
+  const safeEmail = email ? maskEmail(email, piiMasked) : null;
   const caseNumber = index + 1;
 
   return (
@@ -109,7 +125,7 @@ function DashboardCard({ dispute, index }: { dispute: DashboardDispute; index: n
           </p>
           <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
             {issueType && <span className="rounded-full border border-border/60 px-2 py-0.5">{issueType}</span>}
-            {email && <span className="rounded-full border border-border/60 px-2 py-0.5">{email}</span>}
+            {safeEmail && <span className="rounded-full border border-border/60 px-2 py-0.5">{safeEmail}</span>}
           </div>
         </div>
 
@@ -151,6 +167,7 @@ function Index() {
   const [disputes, setDisputes] = useState<DashboardDispute[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [piiMasked, setPiiMasked] = useState(true);
 
   useEffect(() => {
     if (!getAuthUser()) {
@@ -159,11 +176,28 @@ function Index() {
   }, [navigate]);
 
   useEffect(() => {
-    const controller = new AbortController();
+    setPiiMasked(getPIIMaskEnabled());
 
-    async function loadDisputes() {
+    const syncMask = () => setPiiMasked(getPIIMaskEnabled());
+    window.addEventListener(PII_MASK_CHANGED_EVENT, syncMask);
+    window.addEventListener("storage", syncMask);
+
+    return () => {
+      window.removeEventListener(PII_MASK_CHANGED_EVENT, syncMask);
+      window.removeEventListener("storage", syncMask);
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let primed = false;
+    let knownDisputeIds = new Set<string>();
+
+    async function loadDisputes(showSpinner: boolean) {
       try {
-        setLoading(true);
+        if (showSpinner) {
+          setLoading(true);
+        }
         setError(null);
 
         const response = await fetch(`${API_BASE_URL}/api/disputes`, {
@@ -192,19 +226,64 @@ function Index() {
           (dispute) => dispute.status.toUpperCase() !== "RESOLVED",
         );
 
+        const currentIds = new Set<string>(
+          activeDisputes
+            .map((dispute) => dispute.id)
+            .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+        );
+
+        if (!primed) {
+          primed = true;
+          knownDisputeIds = currentIds;
+        } else {
+          const newDisputes = activeDisputes.filter(
+            (dispute) => !knownDisputeIds.has(dispute.id),
+          );
+
+          if (getNotificationsVisible()) {
+            newDisputes.forEach((dispute) => {
+              addCaseNotification({
+                disputeId: dispute.id,
+                status: dispute.status,
+                createdAt: dispute.created_at,
+              });
+            });
+          }
+
+          knownDisputeIds = currentIds;
+        }
+
         setDisputes(activeDisputes);
       } catch (err) {
         if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "Failed to load disputes.");
       } finally {
         if (!controller.signal.aborted) {
-          setLoading(false);
+          if (showSpinner) {
+            setLoading(false);
+          }
         }
       }
     }
 
-    loadDisputes();
-    return () => controller.abort();
+    loadDisputes(true);
+    const timer = window.setInterval(() => {
+      void loadDisputes(false);
+    }, 20000);
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        void loadDisputes(false);
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   const open = disputes.length;
@@ -307,7 +386,7 @@ function Index() {
             </div>
           ) : (
             orderedDisputes.map((dispute, index) => (
-              <DashboardCard key={dispute.id} dispute={dispute} index={index} />
+              <DashboardCard key={dispute.id} dispute={dispute} index={index} piiMasked={piiMasked} />
             ))
           )}
         </div>

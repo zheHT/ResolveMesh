@@ -17,6 +17,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearAuthUser, getAuthUser } from "@/lib/auth";
+import {
+  CASE_NOTIFICATIONS_CHANGED_EVENT,
+  getCaseNotifications,
+  getNotificationsVisible,
+  markAllCaseNotificationsRead,
+  UI_SETTINGS_CHANGED_EVENT,
+  type CaseNotification,
+} from "@/lib/ui-state";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const navItems = [
@@ -37,9 +45,40 @@ export function AppShell({ children }: { children: ReactNode }) {
   const path = location.pathname;
   const [collapsed, setCollapsed] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<CaseNotification[]>([]);
+  const [notificationsVisible, setNotificationsVisible] = useState(true);
   const profileRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
   const authUser = getAuthUser();
   const displayName = "admin";
+
+  const unreadCount = notifications.filter((notification) => !notification.read).length;
+
+  useEffect(() => {
+    const syncNotifications = () => setNotifications(getCaseNotifications());
+    const syncVisibility = () => {
+      const visible = getNotificationsVisible();
+      setNotificationsVisible(visible);
+      if (!visible) {
+        setNotificationsOpen(false);
+      }
+    };
+
+    syncNotifications();
+    syncVisibility();
+    window.addEventListener(CASE_NOTIFICATIONS_CHANGED_EVENT, syncNotifications);
+    window.addEventListener(UI_SETTINGS_CHANGED_EVENT, syncVisibility);
+    window.addEventListener("storage", syncNotifications);
+    window.addEventListener("storage", syncVisibility);
+
+    return () => {
+      window.removeEventListener(CASE_NOTIFICATIONS_CHANGED_EVENT, syncNotifications);
+      window.removeEventListener(UI_SETTINGS_CHANGED_EVENT, syncVisibility);
+      window.removeEventListener("storage", syncNotifications);
+      window.removeEventListener("storage", syncVisibility);
+    };
+  }, []);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -54,10 +93,36 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [profileOpen]);
 
+  useEffect(() => {
+    if (!notificationsOpen) return;
+
+    const onClickOutside = (event: MouseEvent) => {
+      if (
+        notificationsRef.current &&
+        !notificationsRef.current.contains(event.target as Node)
+      ) {
+        setNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [notificationsOpen]);
+
   const handleLogout = () => {
     clearAuthUser();
     setProfileOpen(false);
     navigate({ to: "/login", replace: true });
+  };
+
+  const toggleNotifications = () => {
+    setNotificationsOpen((open) => {
+      const next = !open;
+      if (next) {
+        markAllCaseNotificationsRead();
+      }
+      return next;
+    });
   };
 
   return (
@@ -235,10 +300,63 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="text-foreground/90 font-medium">Staff Command Center</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <button className="relative h-8 w-8 grid place-items-center rounded-lg border border-border/60 hover:bg-accent/50 transition-colors">
-              <Bell className="h-4 w-4" />
-              <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-mint" />
-            </button>
+            {notificationsVisible && (
+              <div className="relative" ref={notificationsRef}>
+                <button
+                  onClick={toggleNotifications}
+                  className="relative h-8 w-8 grid place-items-center rounded-lg border border-border/60 hover:bg-accent/50 transition-colors"
+                  aria-label="Open notifications"
+                >
+                  <Bell className="h-4 w-4" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-4 h-4 rounded-full bg-mint px-1 text-[10px] font-semibold leading-4 text-background text-center">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {notificationsOpen && (
+                  <div className="absolute right-0 mt-2 w-80 rounded-xl border border-border/70 bg-background/95 p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.65)] backdrop-blur-xl">
+                    <div className="px-2 py-1.5 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                      Notifications
+                    </div>
+                    <div className="max-h-80 overflow-auto space-y-1">
+                      {notifications.length === 0 ? (
+                        <div className="px-2 py-3 text-xs text-muted-foreground">
+                          No new case uploads yet.
+                        </div>
+                      ) : (
+                        notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className="rounded-lg border border-border/60 bg-background/50 px-2.5 py-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={cn(
+                                  "text-[11px] font-medium uppercase tracking-[0.12em]",
+                                  notification.kind === "spam"
+                                    ? "text-[oklch(0.76_0.19_29)]"
+                                    : notification.kind === "critical"
+                                      ? "text-[oklch(0.82_0.16_80)]"
+                                      : "text-mint",
+                                )}
+                              >
+                                {notification.label}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">#{notification.disputeId}</span>
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">
+                              Uploaded · {new Date(notification.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="h-8 px-2.5 rounded-lg border border-border/60 flex items-center gap-2 text-xs">
               <div className="h-5 w-5 rounded-full bg-gradient-to-br from-mint to-electric" />
               <span className="hidden sm:inline">admin</span>
