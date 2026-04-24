@@ -5,11 +5,21 @@ const attachment = document.getElementById("attachment");
 const fileName = document.getElementById("fileName");
 const toast = document.getElementById("toast");
 
+// Mock account IDs for each platform
+const accountIdMap = {
+  "Grab Food": "GRB-88219",
+  "Shopee": "SHP-88219",
+  "Maybank": "MBK-88219"
+};
+
+let selectedAccountId = accountIdMap["Grab Food"]; // Default to Grab Food
+
 chips.forEach((chip) => {
   chip.addEventListener("click", () => {
     chips.forEach((item) => item.classList.remove("selected"));
     chip.classList.add("selected");
     complaintType.value = chip.dataset.value;
+    selectedAccountId = accountIdMap[chip.dataset.value];
   });
 });
 
@@ -41,6 +51,7 @@ form.addEventListener("submit", (event) => {
 
   const formData = new FormData();
   formData.append("platform", complaintType.value);
+  formData.append("account_id", selectedAccountId);
   formData.append("transactionId", document.getElementById("transactionId").value.trim());
   formData.append("summary", document.getElementById("summary").value.trim());
   formData.append("details", document.getElementById("details").value.trim());
