@@ -15,6 +15,7 @@ function timeAgo(iso: string) {
 
 export function DisputeCard({ dispute, index }: { dispute: Dispute; index: number }) {
   const isProcessing = dispute.status === "Investigating";
+  const caseNumber = index + 1;
 
   return (
     <motion.div
@@ -43,7 +44,7 @@ export function DisputeCard({ dispute, index }: { dispute: Dispute; index: numbe
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-[11px] text-muted-foreground">
-                {dispute.caseId}
+                Case #{caseNumber}
               </span>
               <span className="text-muted-foreground/50">·</span>
               <span className="inline-flex items-center gap-1 text-[11px] text-electric">
