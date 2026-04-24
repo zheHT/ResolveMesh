@@ -13,7 +13,7 @@ function NotFoundComponent() {
         </p>
         <div className="mt-6">
           <Link
-            to="/"
+            to="/dashboard"
             className="inline-flex items-center justify-center rounded-lg bg-mint px-4 py-2 text-sm font-medium text-mint-foreground transition-all hover:glow-mint"
           >
             Return to Inbox

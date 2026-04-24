@@ -6,6 +6,9 @@ ENV/
 backend/venv/
 backend/.venv/
 node_modules/
+node_modules/
+.vite/
+dist/
 
 # --- Python Cache & Build ---
 __pycache__/

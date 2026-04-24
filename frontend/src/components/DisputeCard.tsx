@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Clock } from "lucide-react";
+import { ArrowUpRight, Clock, Sparkles, Tag } from "lucide-react";
 import type { Dispute } from "@/lib/disputes";
 import { StatusBadge, RiskBadge } from "./StatusBadge";
 
@@ -15,6 +15,7 @@ function timeAgo(iso: string) {
 
 export function DisputeCard({ dispute, index }: { dispute: Dispute; index: number }) {
   const isProcessing = dispute.status === "Investigating";
+  const caseNumber = index + 1;
 
   return (
     <motion.div
@@ -43,10 +44,13 @@ export function DisputeCard({ dispute, index }: { dispute: Dispute; index: numbe
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-[11px] text-muted-foreground">
-                {dispute.caseId}
+                Case #{caseNumber}
               </span>
               <span className="text-muted-foreground/50">·</span>
-              <span className="text-[11px] text-muted-foreground">{dispute.channel}</span>
+              <span className="inline-flex items-center gap-1 text-[11px] text-electric">
+                <Tag className="h-3 w-3" />
+                {dispute.category}
+              </span>
               <span className="text-muted-foreground/50">·</span>
               <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                 <Clock className="h-3 w-3" />
@@ -71,6 +75,17 @@ export function DisputeCard({ dispute, index }: { dispute: Dispute; index: numbe
               <StatusBadge status={dispute.status} pulse />
               <RiskBadge risk={dispute.risk} />
               <div className="ml-auto flex items-center gap-3">
+                <span className="inline-flex items-center gap-1 rounded-md border border-mint/30 bg-mint/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-mint">
+                  <Sparkles className="h-3 w-3" />
+                  Refund{" "}
+                  <span className="font-mono tabular-nums normal-case tracking-normal">
+                    {new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency: dispute.currency,
+                      maximumFractionDigits: 0,
+                    }).format(dispute.suggestedRefund)}
+                  </span>
+                </span>
                 <div className="text-right">
                   <div className="text-base font-semibold tabular-nums">
                     {new Intl.NumberFormat("en-US", {
