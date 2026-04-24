@@ -482,9 +482,6 @@ async def authenticate_user(request: AuthRequest):
     
 @app.get("/api/disputes")
 async def get_all_disputes():
-    """
-    Fetches the main list of disputes for the dashboard.
-    """
     try:
         # Fetch active disputes only; the dashboard hides resolved cases.
         # Some schemas may not have created_at, so we retry without it.
@@ -513,3 +510,24 @@ async def get_all_disputes():
     except Exception as e:
         print(f"Error fetching disputes: {e}")
         raise HTTPException(status_code=500, detail="Could not load disputes list.")
+
+@app.get("/api/logs/{case_id}")
+async def get_case_logs(case_id: str):
+    try:
+        response = (
+            supabase.table("system_logs")
+            .select("*")
+            .eq("payload->>dispute_id", case_id)
+            .eq("visibility", "PUBLIC")
+            .order("created_at", descending=False) # Oldest first to show the timeline
+            .execute()
+        )
+
+        if hasattr(response, 'error') and response.error:
+            raise HTTPException(status_code=400, detail=str(response.error))
+
+        return response.data
+
+    except Exception as e:
+        print(f"❌ Log Fetch Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error while fetching logs")
