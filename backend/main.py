@@ -3,6 +3,7 @@ from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import bcrypt 
 import json
+import re
 from pydantic import BaseModel
 try:
     # When running from within backend/ (e.g. `uvicorn main:app --reload`)
@@ -226,6 +227,16 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/disputes")
+async def create_dispute_from_webhook(request: DisputeRequest):
+    """
+    Create a dispute from N8n webhook or external source
+    - Alias for /redact endpoint (for N8n compatibility)
+    - Returns dispute ID for downstream processing
+    """
+    return await process_dispute(request)
 
 class LogRequest(BaseModel):
     dispute_id: str
@@ -635,15 +646,38 @@ async def analyze_with_legal_agents(request: LegalAgentAnalysisRequest):
             try:
                 response_text = chat_once(prompt)
                 
-                # Parse JSON response
+                # Parse JSON response (handle markdown-wrapped JSON)
                 import json
-                response_json = json.loads(response_text)
+                import re
+                
+                # Strip markdown code blocks if present
+                json_text = response_text.strip()
+                
+                # Handle ```json...``` wrapping
+                if json_text.startswith("```"):
+                    # Remove opening ``` with optional json and any newlines
+                    json_text = re.sub(r"^```\s*(?:json)?\s*\n?", "", json_text, flags=re.IGNORECASE)
+                    # Remove closing ```
+                    json_text = re.sub(r"\s*```\s*$", "", json_text)
+                    json_text = json_text.strip()
+                
+                # Try to extract JSON if it's embedded in text
+                if not json_text.startswith("{"):
+                    # Try to find JSON object in response
+                    match = re.search(r"\{.*\}", json_text, re.DOTALL)
+                    if match:
+                        json_text = match.group(0)
+                
+                # Final cleanup - strip any remaining whitespace
+                json_text = json_text.strip()
+                
+                response_json = json.loads(json_text)
                 responses[agent_type] = response_json
                 
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Agent {agent_type} returned invalid JSON: {response_text[:200]}"
+                    detail=f"Agent {agent_type} returned invalid JSON: {response_text[:300]}"
                 )
             except Exception as e:
                 raise HTTPException(
