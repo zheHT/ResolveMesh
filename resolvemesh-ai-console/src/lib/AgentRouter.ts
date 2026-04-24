@@ -53,7 +53,7 @@ export function routeToLegalAgents(context: DisputeContext): AgentAssignment {
 
   return {
     agentSystem: "legal",
-    agents: ["customerLawyer", "companyLawyer", "judge", "independentLawyer"],
+    agents: ["customerLawyer", "companyLawyer", "judge", "independentLawyer", "merchant"],
     prompts: legalAgentPrompts as Record<string, string>,
     platformContext: platformContext ? {
       platform: platformContext.platform,
@@ -69,6 +69,7 @@ export function routeToLegalAgents(context: DisputeContext): AgentAssignment {
       companyLawyer: getAgentInstruction(context.platform, "companyLawyer") || "Build strongest defense for company position",
       judge: getAgentInstruction(context.platform, "judge") || "Neutral evaluation of both positions",
       independentLawyer: getAgentInstruction(context.platform, "independentLawyer") || "Objective legal assessment and settlement recommendation",
+      merchant: getAgentInstruction(context.platform, "merchant") || "Defend merchant service delivery and payment rights",
     },
   };
 }

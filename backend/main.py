@@ -8,12 +8,18 @@ try:
     from database import supabase  # type: ignore
     from zai_client import chat_once, verify_connection, generate_staff_tldr  # type: ignore
     from pdf_service import fetch_dispute_bundle, build_pdf_bytes, upload_pdf  # type: ignore
+    from evidence_gatherer import gather_evidence  # type: ignore
+    from zai_prompt_builder import build_prompt, get_context_stats  # type: ignore
+    from evidence_validator import validate_agent_responses, generate_validation_report  # type: ignore
 except ModuleNotFoundError:
     # When importing as a package (e.g. `uvicorn backend.main:app --reload`)
     from backend.shield import redact_pii  # type: ignore
     from backend.database import supabase  # type: ignore
     from backend.zai_client import chat_once, verify_connection, generate_staff_tldr  # type: ignore
     from backend.pdf_service import fetch_dispute_bundle, build_pdf_bytes, upload_pdf  # type: ignore
+    from backend.evidence_gatherer import gather_evidence  # type: ignore
+    from backend.zai_prompt_builder import build_prompt, get_context_stats  # type: ignore
+    from backend.evidence_validator import validate_agent_responses, generate_validation_report  # type: ignore
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
@@ -425,5 +431,206 @@ async def get_merchant_record(order_id: str):
             raise HTTPException(status_code=404, detail="No merchant record found for this order.")
             
         return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LEGAL AGENT ANALYSIS ENDPOINTS (NEW)
+# ============================================================================
+
+class LegalAgentAnalysisRequest(BaseModel):
+    dispute_id: str
+    agents: list[str] = ["customerLawyer", "companyLawyer", "judge", "independentLawyer", "merchant"]
+    # agents can be subset, e.g. ["judge", "independentLawyer"] for quick analysis
+
+
+@app.post("/api/agents/analyze")
+async def analyze_with_legal_agents(request: LegalAgentAnalysisRequest):
+    """
+    Invoke all legal agents with evidence context for a dispute
+    
+    Flow:
+    1. Gather evidence (agent-specific)
+    2. Build prompts with evidence context
+    3. Invoke Z.ai for each agent
+    4. Validate all citations
+    5. Store results
+    
+    Returns: Agent responses + validation report
+    """
+    try:
+        dispute_id = request.dispute_id
+        agents_to_run = request.agents
+        
+        # Step 1: Gather evidence for each agent
+        evidence_bundles = {}
+        for agent_type in agents_to_run:
+            bundle = gather_evidence(dispute_id, agent_type)
+            if not bundle:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Could not gather evidence for dispute {dispute_id}"
+                )
+            evidence_bundles[agent_type] = bundle
+            
+            # Log context stats
+            stats = get_context_stats(bundle)
+            require_supabase().table("system_logs").insert({
+                "event_name": "EVIDENCE_GATHERED",
+                "visibility": "INTERNAL",
+                "payload": {
+                    "dispute_id": dispute_id,
+                    "agent": agent_type,
+                    "context_stats": stats
+                }
+            }).execute()
+        
+        # Step 2: Build prompts with evidence
+        prompts = {}
+        for agent_type, bundle in evidence_bundles.items():
+            prompt = build_prompt(bundle, agent_type)
+            if not prompt:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to build prompt for {agent_type}"
+                )
+            prompts[agent_type] = prompt
+        
+        # Step 3: Invoke Z.ai for each agent
+        responses = {}
+        for agent_type, prompt in prompts.items():
+            try:
+                response_text = chat_once(prompt)
+                
+                # Parse JSON response
+                import json
+                response_json = json.loads(response_text)
+                responses[agent_type] = response_json
+                
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Agent {agent_type} returned invalid JSON: {response_text[:200]}"
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error invoking agent {agent_type}: {str(e)}"
+                )
+        
+        # Step 4: Validate all responses
+        validation_report = generate_validation_report(dispute_id, responses)
+        
+        # Step 5: Store results in disputes table
+        dispute = require_supabase().table("disputes").select("agent_reports").eq("id", dispute_id).execute()
+        if not dispute.data:
+            raise HTTPException(status_code=404, detail=f"Dispute {dispute_id} not found")
+        
+        current_reports = dispute.data[0].get("agent_reports") or {}
+        current_reports["legal_agent_analysis"] = {
+            "agent_responses": responses,
+            "validation_report": validation_report,
+            "analyzed_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        require_supabase().table("disputes").update({
+            "agent_reports": current_reports
+        }).eq("id", dispute_id).execute()
+        
+        # Log completion
+        require_supabase().table("system_logs").insert({
+            "event_name": "LEGAL_AGENT_ANALYSIS_COMPLETE",
+            "visibility": "INTERNAL",
+            "payload": {
+                "dispute_id": dispute_id,
+                "agents_count": len(responses),
+                "all_valid": validation_report["all_responses_valid"],
+                "hallucination_detected": validation_report["hallucination_detected"]
+            }
+        }).execute()
+        
+        return {
+            "status": "success",
+            "dispute_id": dispute_id,
+            "agents_analyzed": list(responses.keys()),
+            "validation_report": validation_report,
+            "responses": responses if validation_report["all_responses_valid"] else {},
+            "errors": validation_report.get("summary", "")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
+@app.get("/api/disputes/{dispute_id}/evidence")
+async def get_dispute_evidence(dispute_id: str, agent_type: str = "judge"):
+    """
+    Retrieve evidence bundle for a dispute (for debugging/review)
+    
+    Args:
+        dispute_id: The dispute ID
+        agent_type: Which agent's evidence to retrieve (default: judge - complete)
+    
+    Returns: Evidence bundle with all logs, transactions, timeline
+    """
+    try:
+        bundle = gather_evidence(dispute_id, agent_type)
+        if not bundle:
+            raise HTTPException(status_code=404, detail=f"No evidence found for dispute {dispute_id}")
+        
+        stats = get_context_stats(bundle)
+        
+        return {
+            "dispute_id": dispute_id,
+            "agent_type": agent_type,
+            "stats": stats,
+            "dispute_record": bundle["dispute_record"],
+            "customer_info": bundle["customer_info"],
+            "system_logs_count": len(bundle["system_logs"]),
+            "transactions_count": len(bundle["transactions"]),
+            "timeline_count": len(bundle["timeline"]),
+            "hash_matches": len(bundle["hash_cross_ref"]),
+            "customer_history_count": len(bundle["customer_history"])
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# EVIDENCE CONTEXT ENDPOINT (for development/testing)
+# ============================================================================
+
+@app.get("/api/disputes/{dispute_id}/agent-prompt-preview")
+async def preview_agent_prompt(dispute_id: str, agent_type: str = "judge"):
+    """
+    Preview the full prompt that would be sent to Z.ai (for testing)
+    """
+    try:
+        bundle = gather_evidence(dispute_id, agent_type)
+        if not bundle:
+            raise HTTPException(status_code=404, detail=f"No evidence found for dispute {dispute_id}")
+        
+        prompt = build_prompt(bundle, agent_type)
+        if not prompt:
+            raise HTTPException(status_code=500, detail="Failed to build prompt")
+        
+        stats = get_context_stats(bundle)
+        
+        return {
+            "dispute_id": dispute_id,
+            "agent_type": agent_type,
+            "prompt_preview": prompt[:500] + "...",
+            "prompt_length_chars": len(prompt),
+            "context_stats": stats
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

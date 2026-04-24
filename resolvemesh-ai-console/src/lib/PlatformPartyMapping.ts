@@ -20,6 +20,7 @@ export interface PlatformContext {
     companyLawyer: string;
     judge: string;
     independentLawyer: string;
+    merchant: string;
   };
 }
 
@@ -56,6 +57,7 @@ export const platformContexts: Record<string, PlatformContext> = {
       companyLawyer: "GrabFood/Merchant perspective - service was delivered as ordered",
       judge: "Neutral evaluation of food quality/service delivery evidence from GrabFood logs",
       independentLawyer: "Assess claim viability and recommend settlement based on evidence",
+      merchant: "Restaurant perspective - order was prepared correctly and delivered on time",
     },
   },
 
@@ -93,6 +95,7 @@ export const platformContexts: Record<string, PlatformContext> = {
       companyLawyer: "Bank/Merchant perspective - transaction was authorized and completed per ledger",
       judge: "Neutral evaluation based on transaction records and payment processor rules",
       independentLawyer: "Assess chargeback viability under banking regulations and settlement recommendation",
+      merchant: "Merchant perspective - payment was received and services/goods were delivered",
     },
   },
 
@@ -124,6 +127,7 @@ export const platformContexts: Record<string, PlatformContext> = {
       companyLawyer: "Seller/Platform perspective - item dispatched or customer responsibility",
       judge: "Neutral evaluation of product condition and delivery evidence",
       independentLawyer: "Assess product claim validity and recommend refund/replacement settlement",
+      merchant: "Seller perspective - item was dispatched correctly and meets description/conditions",
     },
   },
 
@@ -155,6 +159,7 @@ export const platformContexts: Record<string, PlatformContext> = {
       companyLawyer: "Company perspective - payment successful and service delivered",
       judge: "Neutral evaluation based on transaction evidence",
       independentLawyer: "Assess dispute viability and recommend resolution",
+      merchant: "Merchant perspective - goods/services were delivered and payment should be retained",
     },
   },
 };
@@ -185,7 +190,7 @@ export function getDisputeParties(platform: string): DisputeParty[] {
  */
 export function getAgentInstruction(
   platform: string,
-  agent: "customerLawyer" | "companyLawyer" | "judge" | "independentLawyer"
+  agent: "customerLawyer" | "companyLawyer" | "judge" | "independentLawyer" | "merchant"
 ): string | null {
   const context = getPlatformContext(platform);
   return context?.legalAgentRoute[agent] ?? null;
