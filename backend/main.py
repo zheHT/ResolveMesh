@@ -53,6 +53,7 @@ class DisputeRequest(BaseModel):
     
     # Evidence
     evidence_url: str = None
+    attachment_content: str = None  # Optional field for attachment content
 
 
 def parse_customer_info(raw_customer_info):
@@ -190,7 +191,8 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
         reports_data = {
             "guardian": {
                 "summary": clean_text,
-                "redacted_at": datetime.now(timezone.utc).isoformat()
+                "redacted_at": datetime.now(timezone.utc).isoformat(),
+                "attachment_content": request.attachment_content or ""
             }
         }
         
@@ -304,6 +306,7 @@ async def add_system_log(request: LogRequest):
     except Exception as e:
         print(f"Log Error: {e}")
         return {"status": "Log failed", "error": str(e)}
+
 
 @app.post("/api/zai/chat")
 async def zai_chat(request: ZaiChatRequest):
@@ -423,6 +426,53 @@ async def generate_verdict_pdf(req: GeneratePdfRequest):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class AppendAgentReportRequest(BaseModel):
+    dispute_id: str
+    agent_name: str  # e.g., "sleuth", "judge", "investigator"
+    report_data: dict  # Flexible object to append
+
+
+@app.post("/api/agent-reports/append")
+async def append_agent_report(request: AppendAgentReportRequest):
+    """
+    Appends a new agent report object to the agent_reports column for a dispute.
+    """
+    try:
+        # 1. Fetch current dispute with agent_reports
+        res = supabase.table("disputes") \
+            .select("agent_reports") \
+            .eq("id", request.dispute_id) \
+            .execute()
+        
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Dispute not found.")
+        
+        current_reports = parse_agent_reports(res.data[0].get("agent_reports", {}))
+        
+        # 2. Append the new report under the agent_name key
+        current_reports[request.agent_name] = request.report_data
+        
+        # 3. Update the disputes table
+        update_res = supabase.table("disputes") \
+            .update({"agent_reports": current_reports}) \
+            .eq("id", request.dispute_id) \
+            .execute()
+        
+        if not update_res.data:
+            raise HTTPException(status_code=500, detail="Failed to update agent reports.")
+        
+        return {
+            "status": "success",
+            "message": f"Agent report '{request.agent_name}' appended successfully.",
+            "dispute_id": request.dispute_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error appending agent report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/ledger/{transaction_id}")
@@ -647,9 +697,6 @@ async def analyze_with_legal_agents(request: LegalAgentAnalysisRequest):
                 response_text = chat_once(prompt)
                 
                 # Parse JSON response (handle markdown-wrapped JSON)
-                import json
-                import re
-                
                 # Strip markdown code blocks if present
                 json_text = response_text.strip()
                 
