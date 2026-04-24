@@ -17,6 +17,9 @@ from supabase_queries import (
     find_matching_hashes,
     get_customer_dispute_history,
     search_logs_by_event,
+    get_merchant_record_by_order_id,
+    get_merchant_fulfillment_status,
+    get_all_merchant_records_for_merchant_id,
 )
 
 
@@ -29,6 +32,7 @@ class EvidenceBundle(TypedDict):
     customer_info: dict
     system_logs: list[dict]
     transactions: list[dict]
+    merchant_record: dict  # Fulfillment data from merchant
     timeline: list[dict]
     hash_cross_ref: dict
     customer_history: list[dict]
@@ -63,8 +67,13 @@ def gather_evidence_for_customer_lawyer(dispute_id: str) -> Optional[EvidenceBun
         # Get transaction info for order
         order_id = dispute["data"].get("customer_info", {}).get("order_id")
         transactions = []
+        merchant_record = {}
         if order_id:
             transactions = get_transactions_by_order_id(order_id)
+            # Get merchant fulfillment status
+            merchant_data = get_merchant_record_by_order_id(order_id)
+            if merchant_data:
+                merchant_record = merchant_data
         
         timeline = get_timeline(dispute_id, max_events=100)
         hashes = find_matching_hashes(dispute_id)
@@ -81,14 +90,16 @@ def gather_evidence_for_customer_lawyer(dispute_id: str) -> Optional[EvidenceBun
             customer_info=customer_info or {},
             system_logs=all_logs,
             transactions=transactions,
+            merchant_record=merchant_record,
             timeline=timeline,
             hash_cross_ref=hashes,
             customer_history=customer_history,
             metadata={
                 "agent": "customerLawyer",
-                "purpose": "Build strongest case for customer position",
+                "purpose": "Build strongest case for customer position. Compare disputes/transactions/merchant records.",
                 "logs_count": len(all_logs),
                 "transactions_count": len(transactions),
+                "merchant_record_found": bool(merchant_record),
                 "timeline_events": len(timeline),
                 "hash_matches": len(hashes)
             }
@@ -126,8 +137,13 @@ def gather_evidence_for_company_lawyer(dispute_id: str) -> Optional[EvidenceBund
         # Get transaction info
         order_id = dispute["data"].get("customer_info", {}).get("order_id")
         transactions = []
+        merchant_record = {}
         if order_id:
             transactions = get_transactions_by_order_id(order_id)
+            # Get merchant fulfillment status (proof of service delivery)
+            merchant_data = get_merchant_record_by_order_id(order_id)
+            if merchant_data:
+                merchant_record = merchant_data
         
         timeline = get_timeline(dispute_id, max_events=100)
         hashes = find_matching_hashes(dispute_id)
@@ -138,16 +154,18 @@ def gather_evidence_for_company_lawyer(dispute_id: str) -> Optional[EvidenceBund
             customer_info=customer_info or {},
             system_logs=all_logs,  # Include all, but delivery/settlement were pre-filtered
             transactions=transactions,
+            merchant_record=merchant_record,
             timeline=timeline,
             hash_cross_ref=hashes,
             customer_history=[],  # Not needed for company perspective
             metadata={
                 "agent": "companyLawyer",
-                "purpose": "Build strongest defense for company position",
+                "purpose": "Build strongest defense for company position. Compare disputes/transactions/merchant records to prove service delivery.",
                 "logs_count": len(all_logs),
                 "delivery_logs": len(delivery_logs),
                 "settlement_logs": len(settlement_logs),
                 "transactions_count": len(transactions),
+                "merchant_record_found": bool(merchant_record),
                 "timeline_events": len(timeline),
             }
         )
@@ -181,8 +199,13 @@ def gather_evidence_for_judge(dispute_id: str) -> Optional[EvidenceBundle]:
         # Get transaction info
         order_id = dispute["data"].get("customer_info", {}).get("order_id")
         transactions = []
+        merchant_record = {}
         if order_id:
             transactions = get_transactions_by_order_id(order_id)
+            # Get merchant fulfillment status
+            merchant_data = get_merchant_record_by_order_id(order_id)
+            if merchant_data:
+                merchant_record = merchant_data
         
         # Full timeline
         timeline = get_timeline(dispute_id, max_events=200)
@@ -196,15 +219,17 @@ def gather_evidence_for_judge(dispute_id: str) -> Optional[EvidenceBundle]:
             customer_info=customer_info or {},
             system_logs=all_logs,
             transactions=transactions,
+            merchant_record=merchant_record,
             timeline=timeline,
             hash_cross_ref=hashes,
             customer_history=[],
             metadata={
                 "agent": "judge",
-                "purpose": "Neutral evaluation of both positions",
+                "purpose": "Neutral evaluation of both positions. Compare disputes/transactions/merchant records objectively.",
                 "completeness": "FULL",
                 "logs_count": len(all_logs),
                 "transactions_count": len(transactions),
+                "merchant_record_found": bool(merchant_record),
                 "timeline_events": len(timeline),
                 "hash_matches": len(hashes)
             }
@@ -237,8 +262,13 @@ def gather_evidence_for_independent_lawyer(dispute_id: str) -> Optional[Evidence
         # Get transaction info
         order_id = dispute["data"].get("customer_info", {}).get("order_id")
         transactions = []
+        merchant_record = {}
         if order_id:
             transactions = get_transactions_by_order_id(order_id)
+            # Get merchant fulfillment status
+            merchant_data = get_merchant_record_by_order_id(order_id)
+            if merchant_data:
+                merchant_record = merchant_data
         
         # Timeline
         timeline = get_timeline(dispute_id, max_events=50)
@@ -257,14 +287,16 @@ def gather_evidence_for_independent_lawyer(dispute_id: str) -> Optional[Evidence
             customer_info=customer_info or {},
             system_logs=all_logs,
             transactions=transactions,
+            merchant_record=merchant_record,
             timeline=timeline,
             hash_cross_ref=hashes,
             customer_history=customer_history,
             metadata={
                 "agent": "independentLawyer",
-                "purpose": "Settlement recommendation and risk assessment",
+                "purpose": "Settlement recommendation. Compare disputes/transactions/merchant records for fair settlement.",
                 "logs_count": len(all_logs),
                 "transactions_count": len(transactions),
+                "merchant_record_found": bool(merchant_record),
                 "customer_history_count": len(customer_history),
                 "settlement_focus": True
             }
@@ -304,8 +336,13 @@ def gather_evidence_for_merchant(dispute_id: str) -> Optional[EvidenceBundle]:
         # Get transaction info (payment records)
         order_id = dispute["data"].get("customer_info", {}).get("order_id")
         transactions = []
+        merchant_record = {}
         if order_id:
             transactions = get_transactions_by_order_id(order_id)
+            # Get merchant fulfillment status (critical for merchant defense)
+            merchant_data = get_merchant_record_by_order_id(order_id)
+            if merchant_data:
+                merchant_record = merchant_data
         
         # Timeline for order progression
         timeline = get_timeline(dispute_id, max_events=50)
@@ -324,14 +361,16 @@ def gather_evidence_for_merchant(dispute_id: str) -> Optional[EvidenceBundle]:
             customer_info=customer_info or {},
             system_logs=merchant_relevant_logs if merchant_relevant_logs else all_logs,
             transactions=transactions,
+            merchant_record=merchant_record,
             timeline=timeline,
             hash_cross_ref=hashes,
             customer_history=customer_history,
             metadata={
                 "agent": "merchant",
-                "purpose": "Service delivery and payment defense",
+                "purpose": "Defense position: prove service was delivered. Compare disputes/transactions/merchant records.",
                 "logs_count": len(merchant_relevant_logs if merchant_relevant_logs else all_logs),
                 "transactions_count": len(transactions),
+                "merchant_record_found": bool(merchant_record),
                 "customer_history_count": len(customer_history),
                 "merchant_focus": True
             }

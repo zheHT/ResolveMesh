@@ -460,6 +460,112 @@ def get_customer_dispute_history(customer_email: str, limit: int = 10) -> list[d
 
 
 # ============================================================================
+# MERCHANT RECORDS QUERIES
+# ============================================================================
+
+def get_merchant_record_by_order_id(order_id: str) -> dict[str, Any] | None:
+    """
+    Fetch merchant record by order_id
+    
+    Returns merchant fulfillment data:
+    - order_id
+    - prep_status (e.g., "pending", "preparing", "ready", "picked_up")
+    - items_prepared (list of items)
+    - timestamps (prep_start, prep_end, pickup_time)
+    - merchant_id
+    - delivery_partner
+    
+    Returns:
+        {
+            "row_id": merchant_record_id,
+            "table": "merchant_records",
+            "order_id": order_id,
+            "data": { full merchant record }
+        }
+    """
+    try:
+        res = (
+            supabase.table("merchant_records")
+            .select("*")
+            .eq("order_id", order_id)
+            .execute()
+        )
+        
+        if res.data and len(res.data) > 0:
+            row = res.data[0]
+            return {
+                "row_id": row.get("id"),
+                "table": "merchant_records",
+                "order_id": order_id,
+                "citation_path": "order_id",
+                "data": row
+            }
+        return None
+    except Exception as e:
+        print(f"Error fetching merchant record for order {order_id}: {e}")
+        return None
+
+
+def get_merchant_fulfillment_status(order_id: str) -> dict[str, Any] | None:
+    """
+    Get merchant fulfillment status (preparation + pickup)
+    
+    Returns:
+        {
+            "prep_status": "pending" | "preparing" | "ready" | "picked_up",
+            "items_prepared": [list of items],
+            "prep_start_time": ISO 8601,
+            "prep_end_time": ISO 8601,
+            "pickup_time": ISO 8601
+        }
+    """
+    merchant_record = get_merchant_record_by_order_id(order_id)
+    if not merchant_record:
+        return None
+    
+    data = merchant_record.get("data", {})
+    return {
+        "prep_status": data.get("prep_status"),
+        "items_prepared": data.get("items_prepared", []),
+        "prep_start_time": data.get("prep_start_time"),
+        "prep_end_time": data.get("prep_end_time"),
+        "pickup_time": data.get("pickup_time"),
+        "merchant_id": data.get("merchant_id"),
+        "delivery_partner": data.get("delivery_partner")
+    }
+
+
+def get_all_merchant_records_for_merchant_id(merchant_id: str) -> list[dict]:
+    """
+    Get all orders/fulfillment records for a specific merchant
+    
+    Useful for checking merchant reputation/pattern
+    """
+    try:
+        res = (
+            supabase.table("merchant_records")
+            .select("*")
+            .eq("merchant_id", merchant_id)
+            .order("created_at", desc=False)
+            .limit(50)
+            .execute()
+        )
+        
+        records = []
+        for row in res.data or []:
+            records.append({
+                "row_id": row.get("id"),
+                "table": "merchant_records",
+                "order_id": row.get("order_id"),
+                "data": row
+            })
+        return records
+    except Exception as e:
+        print(f"Error fetching merchant records for {merchant_id}: {e}")
+        return []
+
+
+# ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
 

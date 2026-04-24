@@ -12,7 +12,7 @@ from enum import Enum
 
 # Agent type definitions
 AgentSystem = Literal["operational", "legal"]
-OperationalAgent = Literal["negotiator", "advocate", "auditor", "summarizer"]
+OperationalAgent = Literal["advocate", "auditor", "summarizer"]
 LegalAgent = Literal["customerLawyer", "companyLawyer", "judge", "independentLawyer"]
 AgentType = OperationalAgent | LegalAgent
 
@@ -31,13 +31,6 @@ class AgentMetadata(TypedDict):
 
 # Operational agents metadata
 OPERATIONAL_AGENTS: dict[OperationalAgent, AgentMetadata] = {
-    "negotiator": {
-        "system": "operational",
-        "agent_type": "negotiator",
-        "display_name": "Negotiator",
-        "description": "Hash reconciliation specialist",
-        "role": "Transaction validator",
-    },
     "advocate": {
         "system": "operational",
         "agent_type": "advocate",
@@ -177,7 +170,7 @@ def route_dispute_to_agents(
     # Default to operational agents
     return {
         "system": "operational",
-        "agents": ["negotiator", "advocate", "auditor", "summarizer"],
+        "agents": ["advocate", "auditor", "summarizer"],
         "platform_context": None,
     }
 

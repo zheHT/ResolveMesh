@@ -134,24 +134,141 @@ def normalize_dispute_row(row):
     }
 
 # --- UTILITY FUNCTIONS ---
+async def run_auditor_checks(order_id: str, customer_email: str, issue_type: str, raw_text: str) -> dict:
+    """
+    Comprehensive Auditor Agent: Checks multiple fraud/spam business rules.
+    
+    Returns:
+        {
+            "is_flagged": bool,
+            "risk_level": "LOW" | "MEDIUM" | "HIGH",
+            "flags": [list of detected issues],
+            "details": {detailed findings}
+        }
+    """
+    flags = []
+    risk_score = 0
+    details = {}
+    
+    # RULE 1: Duplicate Order-Email Combo
+    if order_id != "N/A" and order_id:
+        dup_res = supabase.table("disputes") \
+            .select("id, status, created_at") \
+            .eq("customer_info->>order_id", order_id) \
+            .eq("customer_info->>email", customer_email) \
+            .execute()
+        
+        if len(dup_res.data) > 0:
+            flags.append("DUPLICATE_ORDER_EMAIL")
+            risk_score += 40
+            details["duplicate_disputes"] = len(dup_res.data)
+    
+    # RULE 2: Multiple Disputes by Same Customer (24h window)
+    if customer_email and customer_email != "N/A":
+        from datetime import timedelta
+        time_24h_ago = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        
+        multi_res = supabase.table("disputes") \
+            .select("id, created_at") \
+            .eq("customer_info->>email", customer_email) \
+            .gte("created_at", time_24h_ago) \
+            .execute()
+        
+        dispute_count_24h = len(multi_res.data)
+        if dispute_count_24h >= 3:
+            flags.append("RAPID_DISPUTE_PATTERN")
+            risk_score += 30
+            details["disputes_in_24h"] = dispute_count_24h
+        elif dispute_count_24h == 2:
+            risk_score += 15
+    
+    # RULE 3: Multiple Customers Disputing Same Order
+    if order_id != "N/A" and order_id:
+        multi_cust_res = supabase.table("disputes") \
+            .select("customer_info->>email") \
+            .eq("customer_info->>order_id", order_id) \
+            .execute()
+        
+        unique_customers = len(set([d.get("email", "") for d in multi_cust_res.data if d.get("email")]))
+        if unique_customers > 1:
+            flags.append("MULTIPLE_CUSTOMERS_SAME_ORDER")
+            risk_score += 35
+            details["unique_customers"] = unique_customers
+    
+    # RULE 4: Text Pattern Similarity (simple check - look for common spam phrases)
+    spam_patterns = [
+        "free refund",
+        "definitely scam",
+        "never received",
+        "completely fake",
+        "total fraud",
+        "stolen",
+        "didn't order",
+        "don't recognize"
+    ]
+    
+    text_lower = raw_text.lower()
+    matched_patterns = [p for p in spam_patterns if p in text_lower]
+    
+    if len(matched_patterns) >= 2:
+        flags.append("SUSPICIOUS_TEXT_PATTERN")
+        risk_score += 20
+        details["suspicious_phrases"] = matched_patterns
+    
+    # RULE 5: Excessive Refund Pattern by Customer
+    if customer_email and customer_email != "N/A":
+        refund_res = supabase.table("disputes") \
+            .select("id, agent_reports") \
+            .eq("customer_info->>email", customer_email) \
+            .like("agent_reports->legal_agent_analysis->agent_responses->judge->reasoning", "%REFUND%") \
+            .execute()
+        
+        refund_count = len(refund_res.data)
+        if refund_count >= 5:
+            flags.append("EXCESSIVE_REFUND_CLAIMS")
+            risk_score += 35
+            details["approved_refunds"] = refund_count
+    
+    # RULE 6: Issue Type Abuse Pattern
+    if issue_type:
+        issue_res = supabase.table("disputes") \
+            .select("id, created_at") \
+            .eq("customer_info->>email", customer_email) \
+            .eq("customer_info->>issue_type", issue_type) \
+            .execute()
+        
+        same_issue_count = len(issue_res.data)
+        if same_issue_count >= 4:
+            flags.append("REPEATED_ISSUE_TYPE")
+            risk_score += 20
+            details["same_issue_count"] = same_issue_count
+    
+    # Determine Risk Level
+    if risk_score >= 60:
+        risk_level = "HIGH"
+    elif risk_score >= 35:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+    
+    is_flagged = risk_score >= 35
+    
+    return {
+        "is_flagged": is_flagged,
+        "risk_level": risk_level,
+        "risk_score": risk_score,
+        "flags": flags,
+        "details": details
+    }
+
+
 async def is_duplicate_claim(order_id: str, customer_email: str):
     """
-    Anti-Fraud Logic: Checks if an active or finished dispute 
-    already exists for this specific order and customer.
+    Legacy compatibility: wrapper for run_auditor_checks().
+    Returns True if auditor flags any issues.
     """
-    # If it's a messy email without an Order ID, we can't reliably check for duplicates yet.
-    if order_id == "N/A" or not order_id:
-        return False 
-        
-    # Query Supabase using JSONB arrow operators (->>) to peek inside 'customer_info'
-    res = supabase.table("disputes") \
-        .select("id") \
-        .eq("customer_info->>order_id", order_id) \
-        .eq("customer_info->>email", customer_email) \
-        .execute()
-        
-    # Returns True if any rows are found, False otherwise
-    return len(res.data) > 0
+    audit_result = await run_auditor_checks(order_id, customer_email, "", "")
+    return audit_result["is_flagged"]
 
 def require_supabase():
     if supabase is None:
@@ -164,12 +281,21 @@ def require_supabase():
 @app.post("/redact")
 async def process_dispute(request: DisputeRequest): # Use the new Unified class
     try:
-        # 1. ANTI-FRAUD CHECK 
-        # We check if this specific Order ID has been disputed before
-        is_duplicate = await is_duplicate_claim(request.order_id, request.customer_email)
+        # 1. AUDITOR CHECK (Comprehensive Fraud Detection)
+        audit_result = await run_auditor_checks(
+            request.order_id, 
+            request.customer_email, 
+            request.issue_type,
+            request.raw_text
+        )
         
-        # Determine initial status
-        initial_status = "SUSPECTED_FRAUD" if is_duplicate else "PENDING"
+        # Determine initial status based on audit findings
+        if audit_result["risk_level"] == "HIGH":
+            initial_status = "SUSPECTED_FRAUD"
+        elif audit_result["risk_level"] == "MEDIUM":
+            initial_status = "PENDING"
+        else:
+            initial_status = "PENDING"
 
         # 2. REDACTION (The Guardian's Job)
         clean_text = redact_pii(
@@ -193,6 +319,14 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
                 "summary": clean_text,
                 "redacted_at": datetime.now(timezone.utc).isoformat(),
                 "attachment_content": request.attachment_content or ""
+            },
+            "auditor": {
+                "is_flagged": audit_result["is_flagged"],
+                "risk_level": audit_result["risk_level"],
+                "risk_score": audit_result["risk_score"],
+                "flags": audit_result["flags"],
+                "details": audit_result["details"],
+                "audited_at": datetime.now(timezone.utc).isoformat()
             }
         }
         
@@ -209,7 +343,20 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
         case_id = response.data[0]['id']
 
         # 5. LOGGING (Using your new 'visibility' column!)
-        # This is a PUBLIC log so the frontend user knows the case is created
+        # Audit findings are INTERNAL - staff only
+        require_supabase().table("system_logs").insert({
+            "event_name": "AUDITOR_RISK_ASSESSMENT",
+            "visibility": "INTERNAL", 
+            "payload": {
+                "dispute_id": case_id,
+                "risk_level": audit_result["risk_level"],
+                "risk_score": audit_result["risk_score"],
+                "flags": audit_result["flags"],
+                "message": f"Auditor flagged {len(audit_result['flags'])} issues. Risk: {audit_result['risk_level']}"
+            }
+        }).execute()
+        
+        # Public log for case creation
         require_supabase().table("system_logs").insert({
             "event_name": "GUARDIAN_REDACTION_COMPLETE",
             "visibility": "PUBLIC", 
@@ -223,7 +370,8 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
             "status": "success",
             "case_id": case_id,
             "redacted_text": clean_text,
-            "initial_status": initial_status
+            "initial_status": initial_status,
+            "audit_result": audit_result
         }
     
     except Exception as e:
@@ -818,6 +966,44 @@ async def get_dispute_evidence(dispute_id: str, agent_type: str = "judge"):
 # ============================================================================
 # EVIDENCE CONTEXT ENDPOINT (for development/testing)
 # ============================================================================
+
+@app.get("/api/disputes/{dispute_id}/audit-findings")
+async def get_audit_findings(dispute_id: str):
+    """
+    Retrieve auditor's fraud/spam detection findings for a dispute.
+    Returns risk level, flags, and detailed audit data.
+    """
+    try:
+        res = require_supabase().table("disputes") \
+            .select("id, agent_reports") \
+            .eq("id", dispute_id) \
+            .execute()
+        
+        if not res.data:
+            raise HTTPException(status_code=404, detail=f"Dispute {dispute_id} not found")
+        
+        dispute = res.data[0]
+        agent_reports = dispute.get("agent_reports", {}) or {}
+        audit_findings = agent_reports.get("auditor", {})
+        
+        if not audit_findings:
+            return {
+                "status": "no_audit",
+                "message": "No auditor findings recorded for this dispute",
+                "dispute_id": dispute_id
+            }
+        
+        return {
+            "status": "success",
+            "dispute_id": dispute_id,
+            "audit_findings": audit_findings
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/disputes/{dispute_id}/agent-prompt-preview")
 async def preview_agent_prompt(dispute_id: str, agent_type: str = "judge"):
