@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import bcrypt 
+import json
 from pydantic import BaseModel
 from shield import redact_pii
 from database import supabase
@@ -34,6 +35,84 @@ class DisputeRequest(BaseModel):
     
     # Evidence
     evidence_url: str = None
+
+
+def parse_customer_info(raw_customer_info):
+    if isinstance(raw_customer_info, dict):
+        return raw_customer_info
+
+    if isinstance(raw_customer_info, str):
+        try:
+            parsed_customer_info = json.loads(raw_customer_info)
+        except json.JSONDecodeError:
+            return {}
+
+        if isinstance(parsed_customer_info, dict):
+            return parsed_customer_info
+
+    return {}
+
+
+def parse_agent_reports(raw_agent_reports):
+    if isinstance(raw_agent_reports, dict):
+        return raw_agent_reports
+
+    if isinstance(raw_agent_reports, str):
+        try:
+            parsed_agent_reports = json.loads(raw_agent_reports)
+        except json.JSONDecodeError:
+            return {}
+
+        if isinstance(parsed_agent_reports, dict):
+            return parsed_agent_reports
+
+    return {}
+
+
+def get_dispute_timestamp(row, agent_reports):
+    created_at = row.get("created_at") if isinstance(row, dict) else None
+    if created_at:
+        return created_at
+
+    guardian_report = agent_reports.get("guardian") if isinstance(agent_reports, dict) else None
+    if isinstance(guardian_report, dict):
+        redacted_at = guardian_report.get("redacted_at")
+        if redacted_at:
+            return redacted_at
+
+    return None
+
+
+def normalize_dispute_row(row):
+    if not isinstance(row, dict):
+        return {
+            "id": "unknown",
+            "status": "PENDING",
+            "customer_info": {},
+            "agent_reports": {},
+            "created_at": None,
+        }
+
+    customer_info = parse_customer_info(row.get("customer_info"))
+    agent_reports = parse_agent_reports(row.get("agent_reports"))
+    timestamp = get_dispute_timestamp(row, agent_reports)
+    normalized_customer_info = {
+        **customer_info,
+        "email": customer_info.get("email"),
+        "amount": customer_info.get("amount"),
+        "order_id": customer_info.get("order_id"),
+        "platform": customer_info.get("platform"),
+        "issue_type": customer_info.get("issue_type"),
+        "evidence_url": customer_info.get("evidence_url"),
+        "account_id": customer_info.get("account_id"),
+    }
+
+    return {
+        **row,
+        "customer_info": normalized_customer_info,
+        "agent_reports": agent_reports,
+        "created_at": timestamp,
+    }
 
 # --- UTILITY FUNCTIONS ---
 async def is_duplicate_claim(order_id: str, customer_email: str):
@@ -152,16 +231,62 @@ async def add_system_log(request: LogRequest):
 
 @app.get("/api/ledger/{transaction_id}")
 async def get_ledger_entry(transaction_id: str):
-    # This searches your NoSQL 'ledger_data' for the ID
+    # Supports both transaction_id and order_id lookups.
     res = supabase.table("transactions") \
         .select("*") \
         .eq("ledger_data->>transaction_id", transaction_id) \
         .execute()
+
+    if not res.data:
+        res = supabase.table("transactions") \
+            .select("*") \
+            .eq("ledger_data->>order_id", transaction_id) \
+            .execute()
     
     if not res.data:
         raise HTTPException(status_code=404, detail="Transaction not found in Digital Twin.")
     
     return res.data[0]
+
+
+@app.get("/api/disputes/{case_id}")
+async def get_dispute_by_case_id(case_id: str):
+    """
+    Fetches a single dispute row by dispute id for the detail page.
+    """
+    try:
+        try:
+            res = (
+                supabase.table("disputes")
+                .select("id, status, customer_info, agent_reports, created_at")
+                .eq("id", case_id)
+                .limit(1)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception:
+            fallback_res = (
+                supabase.table("disputes")
+                .select("id, status, customer_info, agent_reports")
+                .eq("id", case_id)
+                .limit(1)
+                .execute()
+            )
+            rows = [
+                {**row, "created_at": None}
+                for row in (fallback_res.data or [])
+                if isinstance(row, dict)
+            ]
+
+        if not rows:
+            raise HTTPException(status_code=404, detail="Dispute not found.")
+
+        return normalize_dispute_row(rows[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching dispute {case_id}: {e}")
+        raise HTTPException(status_code=500, detail="Could not load dispute detail.")
 
 @app.post("/api/merchant-sim/{txn_id}") # Added /{txn_id}
 async def merchant_handshake(txn_id: str):
@@ -195,10 +320,16 @@ async def get_customer_brief(dispute_id: str):
         raise HTTPException(status_code=404, detail="Dispute brief not found.")
         
     case = res.data[0]
+    customer_info = parse_customer_info(case.get("customer_info"))
     return {
         "report_type": "OFFICIAL_DISPUTE_BRIEF",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "customer_email": case['customer_info'].get('email'),
+        "customer_email": customer_info.get("email"),
+        "order_id": customer_info.get("order_id"),
+        "platform": customer_info.get("platform"),
+        "amount": customer_info.get("amount"),
+        "issue_type": customer_info.get("issue_type"),
+        "evidence_url": customer_info.get("evidence_url"),
         "incident_summary": case['agent_reports']['guardian']['summary'],
         "current_status": case['status']
     }
@@ -309,13 +440,29 @@ async def get_all_disputes():
     """
     try:
         # Fetch active disputes only; the dashboard hides resolved cases.
-        res = (
-            supabase.table("disputes")
-            .select("id, status, customer_info, agent_reports")
-            .neq("status", "RESOLVED")
-            .execute()
-        )
-        return res.data
+        # Some schemas may not have created_at, so we retry without it.
+        try:
+            res = (
+                supabase.table("disputes")
+                .select("id, status, customer_info, agent_reports, created_at")
+                .neq("status", "RESOLVED")
+                .execute()
+            )
+            rows = res.data or []
+        except Exception:
+            fallback_res = (
+                supabase.table("disputes")
+                .select("id, status, customer_info, agent_reports")
+                .neq("status", "RESOLVED")
+                .execute()
+            )
+            rows = [
+                {**row, "created_at": None}
+                for row in (fallback_res.data or [])
+                if isinstance(row, dict)
+            ]
+
+        return [normalize_dispute_row(row) for row in rows]
     except Exception as e:
         print(f"Error fetching disputes: {e}")
         raise HTTPException(status_code=500, detail="Could not load disputes list.")
