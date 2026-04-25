@@ -65,6 +65,19 @@ npm run dev
 
 The dashboard will be live at http://localhost:5173.
 
+4. ngrok Tunneling Setup (Required for n8n Integration)
+
+Since n8n Cloud needs to reach your local FastAPI backend, you need to expose it via ngrok:
+
+```Bash
+# In a new terminal window
+ngrok http 8000
+```
+
+This will generate a public URL (e.g., `https://xxxxx.ngrok.io`). Use this URL in your n8n workflows to reach your backend endpoints.
+
+Example: Instead of `http://localhost:8000/redact`, use `https://xxxxx.ngrok.io/redact` in your n8n nodes.
+
 🔑 Environment Variables
 
 Create a `.env` file in the root directory with the following configuration:
@@ -82,7 +95,9 @@ GMAIL_PASSWORD=your-gmail-app-password
 
 ## � n8n Integration & Trigger Nodes
 
-ResolveMesh uses **n8n** cloud automation to handle incoming disputes from multiple channels. Configure the following triggers:
+ResolveMesh uses **n8n Cloud** automation to handle incoming disputes from multiple channels. Since n8n Cloud is an external service that needs to reach your local FastAPI backend, **ngrok is required** to expose the backend via a public URL.
+
+Configure the following triggers in your n8n workflows:
 
 ### 1️⃣ IMAP Trigger (Email Intake)
 
@@ -91,7 +106,7 @@ ResolveMesh uses **n8n** cloud automation to handle incoming disputes from multi
 - **Service**: IMAP (Gmail)
 - **Email**: `unemployedsquad123@gmail.com`
 - **Credentials**: Use the `GMAIL_ADDRESS` and `GMAIL_PASSWORD` from `.env`
-- **Action**: Extracts email content and forwards to the backend `/redact` endpoint
+- **Action**: Extracts email content and forwards to the backend `/redact` endpoint via your ngrok URL (e.g., `https://xxxxx.ngrok.io/redact`)
 
 ### 2️⃣ Webhook Trigger (Customer Portal)
 
@@ -100,7 +115,9 @@ ResolveMesh uses **n8n** cloud automation to handle incoming disputes from multi
 - **Webhook URL**: `https://unemployed.app.n8n.cloud/webhook-test/userComplaint`
 - **Method**: POST
 - **Payload**: Accepts form data with fields like `platform`, `account_id`, `transactionId`, `summary`, `details`, and file attachments
-- **Action**: Forwards structured complaint data to the backend for processing
+- **Action**: Forwards structured complaint data to the backend for processing via ngrok
+
+**Important Note**: Replace `http://localhost:8000` with your ngrok public URL (obtained from step 4 of setup) in all n8n API calls to your backend endpoints.
 
 Both triggers route to the backend's `/redact` endpoint, which initiates "The Guardian" agent to sanitize PII and create the initial case record in Supabase.
 
