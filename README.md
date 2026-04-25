@@ -5,11 +5,13 @@
 ---
 
 ## 📺 Demo Video
-> [Link to Demo Video] - *Watch ResolveMesh Pitching Video.*
+
+> [Link to Demo Video] - _Watch ResolveMesh Pitching Video._
 
 ---
 
 ## 🏗️ System Architecture & Multi-Agent Logic
+
 ResolveMesh moves beyond simple chatbots by utilizing **Stateful Decision Making**. Every dispute follows a strictly governed "Handshake" protocol:
 
 1. **The Guardian (Ingestion)**: Actively listens to inputs, sanitizes PII using NLP, and initializes the case in Supabase.
@@ -18,6 +20,7 @@ ResolveMesh moves beyond simple chatbots by utilizing **Stateful Decision Making
 4. **The Reporter (Documentation)**: Generates a human-readable forensic audit and a "Police-Friendly" redacted summary.
 
 ## 🛠️ Project Structure
+
 ```Plaintext
 ResolveMesh/
 ├── Attachments/           # Sample documents to feed the AI Agents
@@ -28,13 +31,15 @@ ResolveMesh/
 ```
 
 ## ⚙️ Setup Instructions
+
 1. Prerequisites
+
 - Python 3.10+
 - Node.js 18+
 - Supabase Account & n8n Cloud Access
 
 2. Backend Setup (FastAPI)
-The backend manages the security layer and database orchestration.
+   The backend manages the security layer and database orchestration.
 
 ```Bash
 cd backend
@@ -46,8 +51,8 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 uvicorn main:app --reload
 ```
-The API will be live at http://localhost:8000. Access Swagger UI at http://localhost:8000/docs.
 
+The API will be live at http://localhost:8000. Access Swagger UI at http://localhost:8000/docs.
 
 3. Frontend Setup (React/Vite)
 
@@ -57,18 +62,50 @@ cd frontend
 npm install
 npm run dev
 ```
+
 The dashboard will be live at http://localhost:5173.
 
 🔑 Environment Variables
 
-Create a .env file in the backend directory and add the following keys:
-```Plaintext
-SUPABASE_URL=your_project_url
-SUPABASE_SERVICE_KEY=your_service_role_key
+Create a `.env` file in the root directory with the following configuration:
+
+```plaintext
+SUPABASE_URL=https://ztamcvkqxjucvaiziwqs.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ZAI_API_KEY=your_zai_platform_key
+PORT=8000
+GMAIL_ADDRESS=your-email@gmail.com
+GMAIL_PASSWORD=your-gmail-app-password
 ```
 
-## 🛡️ Security & Governance
+**Note**: For `GMAIL_PASSWORD`, use a [Gmail App Password](https://myaccount.google.com/apppasswords), not your regular Gmail password.
+
+## � n8n Integration & Trigger Nodes
+
+ResolveMesh uses **n8n** cloud automation to handle incoming disputes from multiple channels. Configure the following triggers:
+
+### 1️⃣ IMAP Trigger (Email Intake)
+
+**Purpose**: Listen for incoming complaint emails
+
+- **Service**: IMAP (Gmail)
+- **Email**: `unemployedsquad123@gmail.com`
+- **Credentials**: Use the `GMAIL_ADDRESS` and `GMAIL_PASSWORD` from `.env`
+- **Action**: Extracts email content and forwards to the backend `/redact` endpoint
+
+### 2️⃣ Webhook Trigger (Customer Portal)
+
+**Purpose**: Accept complaint submissions from the web form
+
+- **Webhook URL**: `https://unemployed.app.n8n.cloud/webhook-test/userComplaint`
+- **Method**: POST
+- **Payload**: Accepts form data with fields like `platform`, `account_id`, `transactionId`, `summary`, `details`, and file attachments
+- **Action**: Forwards structured complaint data to the backend for processing
+
+Both triggers route to the backend's `/redact` endpoint, which initiates "The Guardian" agent to sanitize PII and create the initial case record in Supabase.
+
+## �🛡️ Security & Governance
+
 **Data Privacy**: Automatic PII redaction using Spacy & LLM "Guardian" agents.
 
 **Row-Level Security (RLS)**: Database-native protection ensures staff only see authorized cases.
