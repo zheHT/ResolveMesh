@@ -481,20 +481,41 @@ async def upload_investigation_report(dispute_id: str, file: UploadFile = File(.
 @app.get("/api/merchant/{order_id}")
 async def get_merchant_record(order_id: str):
     try:
-        # We query by order_id because the Merchant doesn't know our internal dispute_id
-        # Querying a specific transaction by looking inside the JSONB column
+        # Merchant operations must come from merchant_records and be linked by order_id.
+        # Try direct order_id first, then fallback to common nested JSON locations.
         res = (
-            supabase.table("transactions")
+            supabase.table("merchant_records")
             .select("*")
-            .filter("ledger_data->>order_id", "eq", order_id)
+            .eq("order_id", order_id)
+            .limit(1)
             .execute()
         )
+
+        if not res.data:
+            res = (
+                supabase.table("merchant_records")
+                .select("*")
+                .filter("merchant_data->>order_id", "eq", order_id)
+                .limit(1)
+                .execute()
+            )
+
+        if not res.data:
+            res = (
+                supabase.table("merchant_records")
+                .select("*")
+                .filter("ledger_data->>order_id", "eq", order_id)
+                .limit(1)
+                .execute()
+            )
         
         if not res.data:
             # If no record, we return a 404 so the AI knows the merchant has no data
             raise HTTPException(status_code=404, detail="No merchant record found for this order.")
             
         return res.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     

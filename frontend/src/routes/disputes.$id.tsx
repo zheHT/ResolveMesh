@@ -84,6 +84,54 @@ function getNestedStatus(record: GenericRecord | null) {
   return null;
 }
 
+function normalizeOrderId(value: unknown) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return null;
+}
+
+function extractOrderId(record: GenericRecord | null) {
+  if (!record) return null;
+
+  const directOrderId = normalizeOrderId(record.order_id);
+  if (directOrderId) {
+    return directOrderId;
+  }
+
+  const ledger = record.ledger_data;
+  if (ledger && typeof ledger === "object" && !Array.isArray(ledger)) {
+    const ledgerOrderId = normalizeOrderId((ledger as GenericRecord).order_id);
+    if (ledgerOrderId) {
+      return ledgerOrderId;
+    }
+  }
+
+  const merchantData = record.merchant_data;
+  if (merchantData && typeof merchantData === "object" && !Array.isArray(merchantData)) {
+    const merchantOrderId = normalizeOrderId((merchantData as GenericRecord).order_id);
+    if (merchantOrderId) {
+      return merchantOrderId;
+    }
+  }
+
+  const customerInfo = record.customer_info;
+  if (customerInfo && typeof customerInfo === "object" && !Array.isArray(customerInfo)) {
+    const customerOrderId = normalizeOrderId((customerInfo as GenericRecord).order_id);
+    if (customerOrderId) {
+      return customerOrderId;
+    }
+  }
+
+  return null;
+}
+
 function normalizeApiError(errorPayload: unknown, fallbackMessage: string) {
   if (errorPayload && typeof errorPayload === "object") {
     const detail = (errorPayload as ApiError).detail;
@@ -179,18 +227,18 @@ function DisputeInvestigationPage() {
 
         setDispute(disputePayload);
 
-        const orderId = disputePayload.customer_info?.order_id;
-        if (!orderId) {
+        const expectedOrderId = normalizeOrderId(disputePayload.customer_info?.order_id);
+        if (!expectedOrderId) {
           setLedgerError("No order_id found in dispute payload.");
           setMerchantError("No order_id found in dispute payload.");
           return;
         }
 
         const [ledgerResult, merchantResult] = await Promise.allSettled([
-          fetch(`${API_BASE_URL}/api/ledger/${encodeURIComponent(orderId)}`, {
+          fetch(`${API_BASE_URL}/api/ledger/${encodeURIComponent(expectedOrderId)}`, {
             signal: controller.signal,
           }),
-          fetch(`${API_BASE_URL}/api/merchant/${encodeURIComponent(orderId)}`, {
+          fetch(`${API_BASE_URL}/api/merchant/${encodeURIComponent(expectedOrderId)}`, {
             signal: controller.signal,
           }),
         ]);
@@ -198,7 +246,16 @@ function DisputeInvestigationPage() {
         if (ledgerResult.status === "fulfilled") {
           if (ledgerResult.value.ok) {
             const payload = (await ledgerResult.value.json()) as GenericRecord;
-            setLedgerRecord(payload);
+            const ledgerOrderId = extractOrderId(payload);
+            if (!ledgerOrderId) {
+              setLedgerError("Company transaction is missing order_id; linkage check failed.");
+            } else if (ledgerOrderId !== expectedOrderId) {
+              setLedgerError(
+                `Company order_id mismatch. Expected ${expectedOrderId}, got ${ledgerOrderId}.`,
+              );
+            } else {
+              setLedgerRecord(payload);
+            }
           } else {
             let parsedError: unknown = null;
             try {
@@ -215,7 +272,16 @@ function DisputeInvestigationPage() {
         if (merchantResult.status === "fulfilled") {
           if (merchantResult.value.ok) {
             const payload = (await merchantResult.value.json()) as GenericRecord;
-            setMerchantRecord(payload);
+            const merchantOrderId = extractOrderId(payload);
+            if (!merchantOrderId) {
+              setMerchantError("Merchant record is missing order_id; linkage check failed.");
+            } else if (merchantOrderId !== expectedOrderId) {
+              setMerchantError(
+                `Merchant order_id mismatch. Expected ${expectedOrderId}, got ${merchantOrderId}.`,
+              );
+            } else {
+              setMerchantRecord(payload);
+            }
           } else {
             let parsedError: unknown = null;
             try {
