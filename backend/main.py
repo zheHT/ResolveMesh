@@ -3,12 +3,23 @@ from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import bcrypt 
 import json
+import smtplib
+import os
+import requests
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from pydantic import BaseModel
+from dotenv import load_dotenv
 from shield import redact_pii
 from database import supabase
 from datetime import datetime, timezone
 from pdf_service import create_verdict_pdf
 from typing import List, Optional
+
+# Load environment variables from root .env file
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 app = FastAPI(title="Resolve Mesh Security Shield")
 
@@ -665,6 +676,102 @@ async def delete_dispute(dispute_id: str):
     except Exception as e:
         print(f"Error deleting dispute: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/reports/send/{dispute_id}")
+async def send_report_email(dispute_id: str):
+    """
+    Sends the verdict PDF report to the customer's email.
+    Downloads the verdict.pdf from Supabase and sends it via email.
+    """
+    try:
+        # 1. Fetch dispute to get customer email
+        dispute_res = supabase.table("disputes") \
+            .select("customer_info") \
+            .eq("id", dispute_id) \
+            .execute()
+        
+        if not dispute_res.data:
+            raise HTTPException(status_code=404, detail="Dispute not found.")
+        
+        customer_info = parse_customer_info(dispute_res.data[0].get("customer_info", {}))
+        customer_email = customer_info.get("email")
+        
+        if not customer_email:
+            raise HTTPException(status_code=400, detail="Customer email not found in dispute records.")
+        
+        # 2. Download the verdict PDF from Supabase
+        pdf_url = f"https://ztamcvkqxjucvaiziwqs.supabase.co/storage/v1/object/public/investigation-reports/{dispute_id}/verdict.pdf"
+        
+        pdf_response = requests.get(pdf_url, timeout=10)
+        if pdf_response.status_code != 200:
+            raise HTTPException(status_code=404, detail="Verdict PDF not found. Please ensure the report has been generated.")
+        
+        pdf_content = pdf_response.content
+        
+        # 3. Prepare email
+        sender_email = os.getenv("GMAIL_ADDRESS")
+        sender_password = os.getenv("GMAIL_PASSWORD")
+        
+        if not sender_email or not sender_password:
+            raise HTTPException(status_code=500, detail="Email service not configured. Missing GMAIL_ADDRESS or GMAIL_PASSWORD.")
+        
+        # Create email message
+        msg = MIMEMultipart()
+        msg["From"] = sender_email
+        msg["To"] = customer_email
+        msg["Subject"] = "Your Investigation Report - ResolveMesh"
+        
+        # Email body
+        body = """This is our final report
+
+Thanks for being patient
+
+-regards ResolveMesh team"""
+        
+        msg.attach(MIMEText(body, "plain"))
+        
+        # Attach PDF
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(pdf_content)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename= verdict.pdf")
+        msg.attach(part)
+        
+        # 4. Send email via Gmail SMTP
+        try:
+            server = smtplib.SMTP("smtp.gmail.com", 587)
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+            server.quit()
+        except smtplib.SMTPAuthenticationError:
+            raise HTTPException(status_code=500, detail="Email authentication failed. Check GMAIL_ADDRESS and GMAIL_PASSWORD.")
+        except smtplib.SMTPException as e:
+            raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+        
+        # 5. Log the email send
+        supabase.table("system_logs").insert({
+            "event_name": "REPORT_SENT_EMAIL",
+            "visibility": "INTERNAL",
+            "payload": {
+                "dispute_id": dispute_id,
+                "recipient_email": customer_email,
+                "sent_at": datetime.now(timezone.utc).isoformat()
+            }
+        }).execute()
+        
+        return {
+            "status": "success",
+            "message": f"Report sent to {customer_email}",
+            "dispute_id": dispute_id,
+            "recipient_email": customer_email
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error sending report email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send report: {str(e)}")
 
 @app.post("/api/pdf/generate/{dispute_id}")
 async def generate_verdict_pdf(dispute_id: str, request: VerdictPDFRequest):
