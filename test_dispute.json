@@ -1,0 +1,10 @@
+{
+  "customer_email": "sarah.johnson@example.com",
+  "platform": "GrabFood",
+  "amount": 125.50,
+  "order_id": "GRB-2026-04-24-TEST-001",
+  "issue_type": "Food Quality Issue",
+  "raw_text": "My name is Sarah Johnson and my phone number is +60187654321. My credit card ending in 4532 was charged twice for order GRB-2026. The food arrived cold at my home in Kuala Lumpur.",
+  "evidence_url": "https://example.com/photo.jpg",
+  "account_id": "ACC-GRB-001"
+}
