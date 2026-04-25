@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from shield import redact_pii
 from database import supabase
 from datetime import datetime, timezone
+from pdf_service import create_verdict_pdf
+from typing import List, Optional
 
 app = FastAPI(title="Resolve Mesh Security Shield")
 
@@ -36,6 +38,22 @@ class DisputeRequest(BaseModel):
     # Evidence
     evidence_url: str = None
     attachment_content: str = None  # Optional field for attachment content
+
+class EvidenceReference(BaseModel):
+    transaction_id: str
+    details: str
+
+class VerdictPDFRequest(BaseModel):
+    """Request to generate a verdict PDF"""
+    dispute_id: str
+    agent: str  # e.g., "The Judge", "Ledger Auditor"
+    confidence_score: int  # 0-100
+    reasoning: str
+    evidence: List[EvidenceReference]
+    summary_tldr: str
+    created_at: str
+    template: str  # 'police', 'internal', or 'verdict'
+
 
 
 def parse_customer_info(raw_customer_info):
@@ -581,5 +599,58 @@ async def get_case_logs(case_id: str):
         return response.data
 
     except Exception as e:
-        print(f"❌ Log Fetch Error: {e}")
+        print(f"[ERROR] Log Fetch Error: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error while fetching logs")
+
+@app.post("/api/pdf/generate/{dispute_id}")
+async def generate_verdict_pdf(dispute_id: str, request: VerdictPDFRequest):
+    """
+    Generate a verdict PDF and upload directly to Supabase Storage
+    
+    Used by n8n AI agents (Judge, Auditor, etc.) to create official case documents.
+    Templates: 'verdict' (customer-facing), 'internal' (staff review), 'police' (authorities)
+    
+    Path parameter dispute_id must match request.dispute_id
+    """
+    try:
+        # Verify dispute_id matches
+        if dispute_id != request.dispute_id:
+            raise HTTPException(status_code=400, detail="dispute_id in path does not match request body")
+        
+        # Convert Pydantic model to dict for pdf_service
+        summary = {
+            "dispute_id": request.dispute_id,
+            "agent": request.agent,
+            "confidence_score": request.confidence_score,
+            "reasoning": request.reasoning,
+            "evidence": [ev.dict() for ev in request.evidence],
+            "summary_tldr": request.summary_tldr,
+            "created_at": request.created_at,
+            "template": request.template
+        }
+        
+        # Generate and upload PDF
+        result = create_verdict_pdf(summary)
+        
+        if result.get("status") == "error":
+            raise HTTPException(status_code=500, detail=result.get("error"))
+        
+        # Log PDF generation
+        supabase.table("system_logs").insert({
+            "event_name": "PDF_GENERATED",
+            "visibility": "INTERNAL",
+            "payload": {
+                "dispute_id": request.dispute_id,
+                "template": request.template,
+                "agent": request.agent,
+                "pdf_url": result.get("pdf_url")
+            }
+        }).execute()
+        
+        return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] PDF Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
