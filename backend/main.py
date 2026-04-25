@@ -14,6 +14,7 @@ try:
     from evidence_gatherer import gather_evidence  # type: ignore
     from zai_prompt_builder import build_prompt, get_context_stats  # type: ignore
     from evidence_validator import validate_agent_responses, generate_validation_report  # type: ignore
+    from agent_router import OPERATIONAL_AGENTS, LEGAL_AGENTS  # type: ignore
 except ModuleNotFoundError:
     # When importing as a package (e.g. `uvicorn backend.main:app --reload`)
     from backend.shield import redact_pii  # type: ignore
@@ -23,6 +24,7 @@ except ModuleNotFoundError:
     from backend.evidence_gatherer import gather_evidence  # type: ignore
     from backend.zai_prompt_builder import build_prompt, get_context_stats  # type: ignore
     from backend.evidence_validator import validate_agent_responses, generate_validation_report  # type: ignore
+    from backend.agent_router import OPERATIONAL_AGENTS, LEGAL_AGENTS  # type: ignore
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
@@ -153,7 +155,7 @@ async def run_auditor_checks(order_id: str, customer_email: str, issue_type: str
     # RULE 1: Duplicate Order-Email Combo
     if order_id != "N/A" and order_id:
         dup_res = supabase.table("disputes") \
-            .select("id, status, created_at") \
+            .select("id, status") \
             .eq("customer_info->>order_id", order_id) \
             .eq("customer_info->>email", customer_email) \
             .execute()
@@ -169,9 +171,8 @@ async def run_auditor_checks(order_id: str, customer_email: str, issue_type: str
         time_24h_ago = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         
         multi_res = supabase.table("disputes") \
-            .select("id, created_at") \
+            .select("id") \
             .eq("customer_info->>email", customer_email) \
-            .gte("created_at", time_24h_ago) \
             .execute()
         
         dispute_count_24h = len(multi_res.data)
@@ -215,24 +216,24 @@ async def run_auditor_checks(order_id: str, customer_email: str, issue_type: str
         risk_score += 20
         details["suspicious_phrases"] = matched_patterns
     
-    # RULE 5: Excessive Refund Pattern by Customer
+    # RULE 5: Excessive Refund Pattern by Customer (simplified - count disputes)
     if customer_email and customer_email != "N/A":
         refund_res = supabase.table("disputes") \
-            .select("id, agent_reports") \
+            .select("id") \
             .eq("customer_info->>email", customer_email) \
-            .like("agent_reports->legal_agent_analysis->agent_responses->judge->reasoning", "%REFUND%") \
             .execute()
         
-        refund_count = len(refund_res.data)
-        if refund_count >= 5:
+        # Get ALL disputes for this customer - if they have many, flag for review
+        total_disputes = len(refund_res.data)
+        if total_disputes >= 8:
             flags.append("EXCESSIVE_REFUND_CLAIMS")
             risk_score += 35
-            details["approved_refunds"] = refund_count
+            details["total_disputes_by_customer"] = total_disputes
     
     # RULE 6: Issue Type Abuse Pattern
     if issue_type:
         issue_res = supabase.table("disputes") \
-            .select("id, created_at") \
+            .select("id") \
             .eq("customer_info->>email", customer_email) \
             .eq("customer_info->>issue_type", issue_type) \
             .execute()
@@ -649,28 +650,14 @@ async def get_dispute_by_case_id(case_id: str):
     Fetches a single dispute row by dispute id for the detail page.
     """
     try:
-        try:
-            res = (
-                supabase.table("disputes")
-                .select("id, status, customer_info, agent_reports, created_at")
-                .eq("id", case_id)
-                .limit(1)
-                .execute()
-            )
-            rows = res.data or []
-        except Exception:
-            fallback_res = (
-                supabase.table("disputes")
-                .select("id, status, customer_info, agent_reports")
-                .eq("id", case_id)
-                .limit(1)
-                .execute()
-            )
-            rows = [
-                {**row, "created_at": None}
-                for row in (fallback_res.data or [])
-                if isinstance(row, dict)
-            ]
+        res = (
+            supabase.table("disputes")
+            .select("id, status, customer_info, agent_reports")
+            .eq("id", case_id)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
 
         if not rows:
             raise HTTPException(status_code=404, detail="Dispute not found.")
@@ -948,13 +935,16 @@ async def get_dispute_evidence(dispute_id: str, agent_type: str = "judge"):
             "dispute_id": dispute_id,
             "agent_type": agent_type,
             "stats": stats,
-            "dispute_record": bundle["dispute_record"],
-            "customer_info": bundle["customer_info"],
-            "system_logs_count": len(bundle["system_logs"]),
-            "transactions_count": len(bundle["transactions"]),
-            "timeline_count": len(bundle["timeline"]),
-            "hash_matches": len(bundle["hash_cross_ref"]),
-            "customer_history_count": len(bundle["customer_history"])
+            "bundle": {
+                "dispute_record": bundle.get("dispute_record"),
+                "customer_info": bundle.get("customer_info"),
+                "transactions": bundle.get("transactions", []),
+                "merchant_record": bundle.get("merchant_record"),
+                "system_logs": bundle.get("system_logs", []),
+                "timeline": bundle.get("timeline", []),
+                "hash_cross_ref": bundle.get("hash_cross_ref", []),
+                "customer_history": bundle.get("customer_history", [])
+            }
         }
         
     except HTTPException:
@@ -1090,7 +1080,26 @@ async def authenticate_user(request: AuthRequest):
             "message": "Account created successfully!",
             "user": {"id": created_user["account_id"], "email": created_user["email"]}
         }
-    
+@app.get("/api/agents")
+async def get_agents():
+    """
+    Returns list of all available agents (legal and operational)
+    """
+    try:
+        agents = []
+        
+        # Add operational agents
+        for agent_id, metadata in OPERATIONAL_AGENTS.items():
+            agents.append(metadata)
+        
+        # Add legal agents
+        for agent_id, metadata in LEGAL_AGENTS.items():
+            agents.append(metadata)
+        
+        return agents
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not retrieve agents: {str(e)}")
+
 @app.get("/api/disputes")
 async def get_all_disputes():
     """
@@ -1098,27 +1107,13 @@ async def get_all_disputes():
     """
     try:
         # Fetch active disputes only; the dashboard hides resolved cases.
-        # Some schemas may not have created_at, so we retry without it.
-        try:
-            res = (
-                require_supabase().table("disputes")
-                .select("id, status, customer_info, agent_reports, created_at")
-                .neq("status", "RESOLVED")
-                .execute()
-            )
-            rows = res.data or []
-        except Exception:
-            fallback_res = (
-                require_supabase().table("disputes")
-                .select("id, status, customer_info, agent_reports")
-                .neq("status", "RESOLVED")
-                .execute()
-            )
-            rows = [
-                {**row, "created_at": None}
-                for row in (fallback_res.data or [])
-                if isinstance(row, dict)
-            ]
+        res = (
+            require_supabase().table("disputes")
+            .select("id, status, customer_info, agent_reports")
+            .neq("status", "RESOLVED")
+            .execute()
+        )
+        rows = res.data or []
 
         return [normalize_dispute_row(row) for row in rows]
     except Exception as e:
