@@ -25,11 +25,11 @@ ResolveMesh moves beyond simple chatbots by utilizing **Stateful Decision Making
 
 ```Plaintext
 ResolveMesh/
-├── Attachments/           # Sample documents to feed the AI Agents
-├── ComplaintUI/           # Dummy Customer Service Portal
-├── backend/               # FastAPI + Python + AI Agents (Privacy Shield & Logic)
-├── frontend/              # React + Lovable (Dashboard & Ingest)
-└── verdict-pdf-service/   # Microservice for tuning dispute investigation output
+├── Attachments/              # Sample documents to feed the AI Agents
+├── ComplaintUI/              # Dummy Customer Service Portal
+├── backend/                  # FastAPI + Python + AI Agents (Privacy Shield & Logic)
+├── frontend/                 # React + Lovable (Dashboard & Ingest)
+└── Slides & Documentation/   # Pitch deck + Documentations
 ```
 
 ## ⚙️ Setup Instructions
