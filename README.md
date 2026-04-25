@@ -54,6 +54,7 @@ uvicorn main:app --reload
 
 The API will be live at http://localhost:8000. Access Swagger UI at http://localhost:8000/docs.
 
+
 3. Frontend Setup (React/Vite)
 
 ```Bash
@@ -64,6 +65,7 @@ npm run dev
 ```
 
 The dashboard will be live at http://localhost:5173.
+
 
 4. ngrok Tunneling Setup (Required for n8n Integration)
 
