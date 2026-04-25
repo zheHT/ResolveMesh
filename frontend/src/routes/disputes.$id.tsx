@@ -596,6 +596,7 @@ function InvestigationResultCard({ status, summary, caseId }: { status: string; 
   const normalized = status.toLowerCase();
   const isResolved = ["resolved", "closed", "complete", "completed"].some((value) => normalized.includes(value));
   const [isClosing, setIsClosing] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const navigate = useNavigate();
 
   const handleDownloadReport = async () => {
@@ -620,6 +621,31 @@ function InvestigationResultCard({ status, summary, caseId }: { status: string; 
     } catch (error) {
       console.error("Download failed:", error);
       alert("Failed to download report. Please try again.");
+    }
+  };
+
+  const handleSendReport = async () => {
+    setIsSending(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports/send/${caseId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to send report");
+      }
+
+      const data = await response.json();
+      alert(`Report sent successfully to ${data.recipient_email}`);
+    } catch (error) {
+      console.error("Send report failed:", error);
+      alert(`Failed to send report: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -690,12 +716,12 @@ function InvestigationResultCard({ status, summary, caseId }: { status: string; 
         </button>
         <button
           type="button"
-          disabled
+          onClick={handleSendReport}
+          disabled={isSending}
           className="inline-flex items-center justify-center gap-2 rounded-xl border border-electric/40 bg-electric/10 px-3 py-2.5 text-sm font-medium text-electric hover:bg-electric/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Coming soon"
         >
           <Send className="h-4 w-4" />
-          Send Report
+          {isSending ? "Sending..." : "Send Report"}
         </button>
         <button
           type="button"
