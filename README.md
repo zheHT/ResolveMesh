@@ -6,7 +6,9 @@
 
 ## 📺 Demo Video
 
-> [Link to Demo Video] - _Watch ResolveMesh Pitching Video._
+**Watch the demo here ➡️** [ResolveMesh demo video](https://youtu.be/nMyS4ul7UjY)
+
+**Alternative demo link ➡️** [Google Drive](https://drive.google.com/drive/folders/1ODS4bgeUA5aOYNAcSjFyrmoZuj48FzRb?usp=sharing)
 
 ---
 
