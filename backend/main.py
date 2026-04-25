@@ -609,8 +609,8 @@ async def get_case_logs(case_id: str):
             supabase.table("system_logs")
             .select("*")
             .eq("payload->>dispute_id", case_id)
-            .eq("visibility", "PUBLIC")
-            .order("created_at", descending=False) # Oldest first to show the timeline
+            #.eq("visibility", "PUBLIC")
+            .order("created_at", desc=False) # Oldest first to show the timeline
             .execute()
         )
 

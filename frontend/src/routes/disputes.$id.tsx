@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, ArrowLeft, Building2, CheckCircle2, CreditCard, Download, Send, User } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Building2, CheckCircle2, CreditCard, Download, Send, User, Activity } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { maskEmail, maskPII } from "@/lib/disputes";
 import { getPIIMaskEnabled, PII_MASK_CHANGED_EVENT } from "@/lib/ui-state";
@@ -36,6 +36,14 @@ type ApiError = {
 };
 
 type GenericRecord = Record<string, unknown>;
+
+type Log = {
+  id?: string;
+  event_name: string;
+  visibility: string;
+  payload?: GenericRecord;
+  created_at?: string;
+};
 
 export const Route = createFileRoute("/disputes/$id")({
   component: DisputeInvestigationPage,
@@ -182,6 +190,9 @@ function DisputeInvestigationPage() {
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [merchantError, setMerchantError] = useState<string | null>(null);
   const [piiMasked, setPiiMasked] = useState(true);
+  const [logs, setLogs] = useState<Log[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const logsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setPiiMasked(getPIIMaskEnabled());
@@ -308,6 +319,37 @@ function DisputeInvestigationPage() {
     return () => controller.abort();
   }, [id]);
 
+  // Fetch logs with live polling
+  useEffect(() => {
+    async function fetchLogs() {
+      try {
+        setLogsLoading(true);
+        const response = await fetch(`${API_BASE_URL}/api/logs/${id}`);
+        if (response.ok) {
+          const data = (await response.json()) as Log[];
+          setLogs(data || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch logs:", err);
+      } finally {
+        setLogsLoading(false);
+      }
+    }
+
+    fetchLogs();
+
+    // Poll for new logs every 3 seconds
+    logsIntervalRef.current = setInterval(() => {
+      fetchLogs();
+    }, 3000);
+
+    return () => {
+      if (logsIntervalRef.current) {
+        clearInterval(logsIntervalRef.current);
+      }
+    };
+  }, [id]);
+
   const bankStatus = useMemo(() => getNestedStatus(ledgerRecord), [ledgerRecord]);
   const merchantStatus = useMemo(() => getNestedStatus(merchantRecord), [merchantRecord]);
 
@@ -430,6 +472,8 @@ function DisputeInvestigationPage() {
               </ColumnCard>
             </div>
 
+            <LogsCard logs={logs} isLoading={logsLoading} />
+
             <InvestigationResultCard
               status={safeString(dispute?.status)}
               summary={investigationSummary}
@@ -438,6 +482,170 @@ function DisputeInvestigationPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function formatLogTime(dateString: string | undefined): string {
+  if (!dateString) return "N/A";
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return "N/A";
+  }
+}
+
+function getLogIcon(eventName: string): React.ReactNode {
+  const name = eventName.toLowerCase();
+  if (name.includes("guardian") || name.includes("redaction")) {
+    return <Activity className="h-3.5 w-3.5 text-cyan-400" />;
+  }
+  if (name.includes("upload") || name.includes("report")) {
+    return <Activity className="h-3.5 w-3.5 text-emerald-400" />;
+  }
+  if (name.includes("status")) {
+    return <Activity className="h-3.5 w-3.5 text-blue-400" />;
+  }
+  if (name.includes("pdf")) {
+    return <Activity className="h-3.5 w-3.5 text-purple-400" />;
+  }
+  return <Activity className="h-3.5 w-3.5 text-muted-foreground" />;
+}
+
+function LogsCard({ logs, isLoading }: { logs: Log[]; isLoading: boolean }) {
+  return (
+    <div className="glass rounded-2xl p-5 mt-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm uppercase tracking-[0.14em] text-mint">Activity Feed</h2>
+          {isLoading && <div className="h-2 w-2 rounded-full bg-mint animate-pulse" />}
+        </div>
+        <div className="text-xs text-muted-foreground">{logs.length} event{logs.length !== 1 ? "s" : ""}</div>
+      </div>
+
+      <div className="mt-4">
+        {logs.length === 0 ? (
+          <div className="rounded-xl border border-border/60 bg-background/30 p-4 text-sm text-muted-foreground text-center">
+            No activity yet. Updates will appear here as the investigation progresses.
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {logs.map((log, index) => {
+              const payload = log.payload as GenericRecord | undefined;
+              const message =
+                (payload?.message as string) ||
+                (payload?.event as string) ||
+                log.event_name.replace(/_/g, " ");
+
+              return (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="rounded-lg border border-border/40 bg-background/50 p-3 hover:border-border/60 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    {getLogIcon(log.event_name)}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs uppercase tracking-[0.1em] font-medium text-foreground/80">
+                          {log.event_name.replace(/_/g, " ")}
+                        </span>
+                        {log.visibility && (
+                          <span
+                            className={cn(
+                              "text-[10px] px-2 py-0.5 rounded-full font-medium",
+                              log.visibility === "PUBLIC"
+                                ? "bg-cyan-500/20 text-cyan-300"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {log.visibility}
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">
+                          {formatLogTime(log.created_at)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-foreground/70 break-words">{message}</p>
+                      {payload?.dispute_id && (
+                        <div className="mt-2 text-xs text-muted-foreground/60 font-mono">
+                          ID: {payload.dispute_id}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InvestigationResultCard({ status, summary }: { status: string; summary: string }) {
+  const normalized = status.toLowerCase();
+  const isResolved = ["resolved", "closed", "complete", "completed"].some((value) => normalized.includes(value));
+
+  return (
+    <div className="glass rounded-2xl p-5 mt-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-sm uppercase tracking-[0.14em] text-mint">Investigation Result</h2>
+        <div
+          className={cn(
+            "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+            isResolved
+              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+              : "border-[oklch(0.82_0.16_80)]/40 bg-[oklch(0.82_0.16_80)]/10 text-[oklch(0.92_0.11_95)]",
+          )}
+        >
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full",
+              isResolved ? "bg-emerald-300" : "bg-[oklch(0.82_0.16_80)] animate-pulse",
+            )}
+          />
+          {isResolved ? "Resolved" : safeString(status)}
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-border/60 bg-background/30 p-4">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Result Summary</div>
+        <p className="mt-2 text-sm leading-relaxed text-foreground/90">{summary}</p>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-background/30 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
+        >
+          <Download className="h-4 w-4" />
+          Download Report
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-electric/40 bg-electric/10 px-3 py-2.5 text-sm font-medium text-electric hover:bg-electric/15 transition-colors"
+        >
+          <Send className="h-4 w-4" />
+          Send Report
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-400/15 transition-colors"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          Close Case
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -568,64 +776,6 @@ function JsonBlock({ data, masked }: { data: GenericRecord; masked: boolean }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function InvestigationResultCard({ status, summary }: { status: string; summary: string }) {
-  const normalized = status.toLowerCase();
-  const isResolved = ["resolved", "closed", "complete", "completed"].some((value) => normalized.includes(value));
-
-  return (
-    <div className="glass rounded-2xl p-5 mt-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-sm uppercase tracking-[0.14em] text-mint">Investigation Result</h2>
-        <div
-          className={cn(
-            "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
-            isResolved
-              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-              : "border-[oklch(0.82_0.16_80)]/40 bg-[oklch(0.82_0.16_80)]/10 text-[oklch(0.92_0.11_95)]",
-          )}
-        >
-          <span
-            className={cn(
-              "h-2 w-2 rounded-full",
-              isResolved ? "bg-emerald-300" : "bg-[oklch(0.82_0.16_80)] animate-pulse",
-            )}
-          />
-          {isResolved ? "Resolved" : safeString(status)}
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-xl border border-border/60 bg-background/30 p-4">
-        <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Result Summary</div>
-        <p className="mt-2 text-sm leading-relaxed text-foreground/90">{summary}</p>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-background/30 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
-        >
-          <Download className="h-4 w-4" />
-          Download Report
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-electric/40 bg-electric/10 px-3 py-2.5 text-sm font-medium text-electric hover:bg-electric/15 transition-colors"
-        >
-          <Send className="h-4 w-4" />
-          Send Report
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-400/15 transition-colors"
-        >
-          <CheckCircle2 className="h-4 w-4" />
-          Close Case
-        </button>
-      </div>
     </div>
   );
 }
