@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, ArrowLeft, Building2, CheckCircle2, CreditCard, Download, Send, User, Activity } from "lucide-react";
@@ -477,6 +477,7 @@ function DisputeInvestigationPage() {
             <InvestigationResultCard
               status={safeString(dispute?.status)}
               summary={investigationSummary}
+              caseId={id}
             />
           </>
         )}
@@ -591,9 +592,65 @@ function LogsCard({ logs, isLoading }: { logs: Log[]; isLoading: boolean }) {
   );
 }
 
-function InvestigationResultCard({ status, summary }: { status: string; summary: string }) {
+function InvestigationResultCard({ status, summary, caseId }: { status: string; summary: string; caseId: string }) {
   const normalized = status.toLowerCase();
   const isResolved = ["resolved", "closed", "complete", "completed"].some((value) => normalized.includes(value));
+  const [isClosing, setIsClosing] = useState(false);
+  const navigate = useNavigate();
+
+  const handleDownloadReport = async () => {
+    try {
+      const pdfUrl = `https://ztamcvkqxjucvaiziwqs.supabase.co/storage/v1/object/public/investigation-reports/${caseId}/internal.pdf`;
+      
+      // Create a temporary link and trigger download
+      const response = await fetch(pdfUrl);
+      if (!response.ok) {
+        throw new Error("Failed to download report");
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `investigation-report-${caseId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert("Failed to download report. Please try again.");
+    }
+  };
+
+  const handleCloseCase = async () => {
+    if (!window.confirm("Are you sure you want to close this case? This action cannot be undone.")) {
+      return;
+    }
+
+    setIsClosing(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/disputes/${caseId}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to close case");
+      }
+
+      // Successfully deleted, navigate back to dashboard
+      navigate({ to: "/dashboard" });
+    } catch (error) {
+      console.error("Close case failed:", error);
+      alert(`Failed to close case: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsClosing(false);
+    }
+  };
 
   return (
     <div className="glass rounded-2xl p-5 mt-5">
@@ -625,24 +682,29 @@ function InvestigationResultCard({ status, summary }: { status: string; summary:
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-background/30 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
+          onClick={handleDownloadReport}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-background/30 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="h-4 w-4" />
           Download Report
         </button>
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-electric/40 bg-electric/10 px-3 py-2.5 text-sm font-medium text-electric hover:bg-electric/15 transition-colors"
+          disabled
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-electric/40 bg-electric/10 px-3 py-2.5 text-sm font-medium text-electric hover:bg-electric/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Coming soon"
         >
           <Send className="h-4 w-4" />
           Send Report
         </button>
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-400/15 transition-colors"
+          onClick={handleCloseCase}
+          disabled={isClosing}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-400/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <CheckCircle2 className="h-4 w-4" />
-          Close Case
+          {isClosing ? "Closing..." : "Close Case"}
         </button>
       </div>
     </div>

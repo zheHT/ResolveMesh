@@ -623,6 +623,49 @@ async def get_case_logs(case_id: str):
         print(f"[ERROR] Log Fetch Error: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error while fetching logs")
 
+@app.delete("/api/disputes/{dispute_id}")
+async def delete_dispute(dispute_id: str):
+    """
+    Deletes a dispute (case) from the disputes table.
+    Used when closing a case.
+    """
+    try:
+        # 1. Verify dispute exists
+        res = supabase.table("disputes") \
+            .select("id") \
+            .eq("id", dispute_id) \
+            .execute()
+        
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Dispute not found.")
+        
+        # 2. Delete the dispute
+        delete_res = supabase.table("disputes") \
+            .delete() \
+            .eq("id", dispute_id) \
+            .execute()
+        
+        # 3. Log the deletion (internal visibility)
+        supabase.table("system_logs").insert({
+            "event_name": "DISPUTE_DELETED",
+            "visibility": "INTERNAL",
+            "payload": {
+                "dispute_id": dispute_id,
+                "message": "Case closed and deleted from disputes table"
+            }
+        }).execute()
+        
+        return {
+            "status": "success",
+            "message": f"Dispute {dispute_id} has been deleted",
+            "dispute_id": dispute_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting dispute: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/pdf/generate/{dispute_id}")
 async def generate_verdict_pdf(dispute_id: str, request: VerdictPDFRequest):
     """
