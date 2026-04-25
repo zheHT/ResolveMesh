@@ -5,7 +5,7 @@
 ---
 
 ## 📺 Demo Video
-> [Link to Demo Video] - *Watch ResolveMesh triangulate truth in under 60 seconds.*
+> [Link to Demo Video] - *Watch ResolveMesh Pitching Video.*
 
 ---
 
@@ -68,7 +68,7 @@ SUPABASE_SERVICE_KEY=your_service_role_key
 ZAI_API_KEY=your_zai_platform_key
 ```
 
-##🛡️ Security & Governance
+## 🛡️ Security & Governance
 **Data Privacy**: Automatic PII redaction using Spacy & LLM "Guardian" agents.
 
 **Row-Level Security (RLS)**: Database-native protection ensures staff only see authorized cases.
