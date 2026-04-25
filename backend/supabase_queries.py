@@ -259,8 +259,7 @@ def get_transactions_by_order_id(order_id: str) -> list[dict]:
         res = (
             supabase.table("transactions")
             .select("*")
-            .filter("ledger_data->order_id", "eq", order_id)
-            .order("created_at", desc=False)
+            .filter("ledger_data->>order_id", "eq", order_id)
             .execute()
         )
         

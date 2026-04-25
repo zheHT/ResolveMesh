@@ -15,6 +15,7 @@ try:
     from zai_prompt_builder import build_prompt, get_context_stats  # type: ignore
     from evidence_validator import validate_agent_responses, generate_validation_report  # type: ignore
     from agent_router import OPERATIONAL_AGENTS, LEGAL_AGENTS  # type: ignore
+    from dispute_analysis_agent import analyze_all_pending_disputes  # type: ignore
 except ModuleNotFoundError:
     # When importing as a package (e.g. `uvicorn backend.main:app --reload`)
     from backend.shield import redact_pii  # type: ignore
@@ -25,6 +26,7 @@ except ModuleNotFoundError:
     from backend.zai_prompt_builder import build_prompt, get_context_stats  # type: ignore
     from backend.evidence_validator import validate_agent_responses, generate_validation_report  # type: ignore
     from backend.agent_router import OPERATIONAL_AGENTS, LEGAL_AGENTS  # type: ignore
+    from backend.dispute_analysis_agent import analyze_all_pending_disputes  # type: ignore
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
@@ -381,13 +383,89 @@ async def process_dispute(request: DisputeRequest): # Use the new Unified class
 
 
 @app.post("/api/disputes")
-async def create_dispute_from_webhook(request: DisputeRequest):
+async def analyze_pending_disputes():
     """
-    Create a dispute from N8n webhook or external source
-    - Alias for /redact endpoint (for N8n compatibility)
-    - Returns dispute ID for downstream processing
+    NO LONGER creates disputes.
+    Instead: Analyzes all PENDING disputes by cross-referencing Supabase tables
+    - Queries disputes table for status='PENDING' rows
+    - Extracts order_id from customer_info JSONB
+    - Compares with order_id in merchant_records table
+    - Compares with order_id in transactions.ledger_data JSONB
+    - Returns forensic analysis without creating anything
     """
-    return await process_dispute(request)
+    try:
+        # Get all PENDING disputes
+        disputes_response = require_supabase().table("disputes") \
+            .select("*") \
+            .eq("status", "PENDING") \
+            .execute()
+        
+        if not disputes_response.data:
+            return {
+                "status": "no_pending_disputes",
+                "message": "No PENDING disputes found in Supabase",
+                "disputes_analyzed": 0,
+                "analyses": []
+            }
+        
+        analyses = []
+        for dispute in disputes_response.data:
+            try:
+                dispute_id = dispute['id']
+                customer_info = parse_customer_info(dispute.get('customer_info'))
+                order_id = customer_info.get('order_id')
+                
+                # Cross-reference three tables
+                merchant_response = require_supabase().table("merchant_records") \
+                    .select("*") \
+                    .eq("order_id", order_id) \
+                    .execute()
+                
+                transactions_response = require_supabase().table("transactions") \
+                    .select("*") \
+                    .execute()
+                
+                # Filter transactions by ledger_data.order_id (manually since JSONB query)
+                matching_transactions = []
+                for txn in transactions_response.data:
+                    ledger_data = txn.get('ledger_data', {})
+                    if isinstance(ledger_data, str):
+                        try:
+                            ledger_data = json.loads(ledger_data)
+                        except:
+                            ledger_data = {}
+                    if ledger_data.get('order_id') == order_id:
+                        matching_transactions.append(txn)
+                
+                analysis = {
+                    "dispute_id": dispute_id,
+                    "order_id": order_id,
+                    "merchant_records_found": len(merchant_response.data),
+                    "transaction_records_found": len(matching_transactions),
+                    "three_table_linkage": {
+                        "disputes": True,
+                        "merchant_records": len(merchant_response.data) > 0,
+                        "transactions": len(matching_transactions) > 0
+                    },
+                    "issue_type": customer_info.get('issue_type', 'N/A'),
+                    "amount": customer_info.get('amount', 0),
+                    "status": dispute.get('status')
+                }
+                analyses.append(analysis)
+            except Exception as e:
+                print(f"Error analyzing dispute {dispute_id}: {e}")
+                continue
+        
+        return {
+            "status": "success",
+            "message": "Analyzed PENDING disputes by cross-referencing Supabase tables",
+            "disputes_analyzed": len(analyses),
+            "analyses": analyses
+        }
+    
+    except Exception as e:
+        print(f"Error analyzing disputes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 class LogRequest(BaseModel):
     dispute_id: str
@@ -435,6 +513,37 @@ class GeneratePdfRequest(BaseModel):
     template: Literal["police", "internal", "verdict"] = "verdict"
     # Optionally provide the investigation summary; if missing we try disputes.agent_reports.investigation_summary
     summary: Optional[dict[str, Any]] = None
+
+
+@app.post("/api/disputes/analyze-pending")
+async def analyze_pending_disputes_endpoint():
+    """
+    Analyze all PENDING disputes and populate agent_reports with:
+    - judgment_phase (verdict, reasoning, confidence_score)
+    - reporting_phase (tldr, internal_full_report, external_police_report)
+    - investigation_phase (timestamp, data_points, sleuth_evidence)
+    
+    Results stored directly in disputes.agent_reports column
+    """
+    try:
+        analyzed_count = analyze_all_pending_disputes()
+        
+        if analyzed_count > 0:
+            return {
+                "status": "success",
+                "message": f"Analyzed and updated {analyzed_count} PENDING disputes",
+                "disputes_processed": analyzed_count
+            }
+        else:
+            return {
+                "status": "no_disputes",
+                "message": "No PENDING disputes found to analyze",
+                "disputes_processed": 0
+            }
+    except Exception as e:
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/log")
 async def add_system_log(request: LogRequest):
@@ -831,40 +940,53 @@ async def analyze_with_legal_agents(request: LegalAgentAnalysisRequest):
             try:
                 response_text = chat_once(prompt)
                 
-                # Parse JSON response (handle markdown-wrapped JSON)
-                # Strip markdown code blocks if present
+                # Parse JSON response - extract valid JSON from potentially messy LLM output
                 json_text = response_text.strip()
                 
-                # Handle ```json...``` wrapping
+                # Remove markdown code blocks
                 if json_text.startswith("```"):
-                    # Remove opening ``` with optional json and any newlines
                     json_text = re.sub(r"^```\s*(?:json)?\s*\n?", "", json_text, flags=re.IGNORECASE)
-                    # Remove closing ```
                     json_text = re.sub(r"\s*```\s*$", "", json_text)
                     json_text = json_text.strip()
                 
-                # Try to extract JSON if it's embedded in text
-                if not json_text.startswith("{"):
-                    # Try to find JSON object in response
-                    match = re.search(r"\{.*\}", json_text, re.DOTALL)
-                    if match:
-                        json_text = match.group(0)
+                # Find first { and last }
+                first_brace = json_text.find("{")
+                last_brace = json_text.rfind("}")
                 
-                # Final cleanup - strip any remaining whitespace
-                json_text = json_text.strip()
+                if first_brace < 0 or last_brace <= first_brace:
+                    raise ValueError("No JSON object found in response")
                 
-                response_json = json.loads(json_text)
+                # Extract and try to parse
+                json_text = json_text[first_brace:last_brace + 1]
+                
+                # Try to parse - if it fails, work backwards from the last } to find valid JSON
+                try:
+                    response_json = json.loads(json_text)
+                except json.JSONDecodeError:
+                    # Try progressively shorter versions until we find valid JSON
+                    found = False
+                    for end_pos in range(len(json_text) - 1, first_brace, -1):
+                        if json_text[end_pos] == "}":
+                            try:
+                                response_json = json.loads(json_text[:end_pos + 1])
+                                found = True
+                                break
+                            except json.JSONDecodeError:
+                                continue
+                    if not found:
+                        raise ValueError("Could not parse any valid JSON from response")
+                
                 responses[agent_type] = response_json
                 
             except json.JSONDecodeError as e:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Agent {agent_type} returned invalid JSON: {response_text[:300]}"
+                    detail=f"Agent {agent_type}: JSON parse error at position {e.pos}"
                 )
             except Exception as e:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Error invoking agent {agent_type}: {str(e)}"
+                    detail=f"Agent {agent_type}: {str(e)[:80]}"
                 )
         
         # Step 4: Validate all responses
