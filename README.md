@@ -87,7 +87,7 @@ Example: Instead of `http://localhost:8000/redact`, use `https://xxxxx.ngrok.io/
 Create a `.env` file in the root directory with the following configuration:
 
 ```plaintext
-SUPABASE_URL=https://ztamcvkqxjucvaiziwqs.supabase.co
+SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ZAI_API_KEY=your_zai_platform_key
 PORT=8000
